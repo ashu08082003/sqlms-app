@@ -301,3 +301,27 @@ Work Log:
 Stage Summary:
 - All three updates done. (1) Every time shown across the app is now IST (Asia/Kolkata). (2) Database wiped of all demo data — production-ready with admin + template categories/checklists/departments only. (3) Every inspection email now includes the checklist sheet as a PDF attachment (full report for report emails, failed-items-only for escalation emails). User's real SMTP (Gmail) is configured and sending live emails with PDF attachments.
 - NOTE for user: admin password is still admin123 — should be changed for production. The seed script no longer regenerates demo data by default.
+
+---
+Task ID: 20 (fix PDF attachment — switch pdfkit → pdf-lib)
+Agent: main (orchestrator)
+Task: Fix "email report not attached" — the PDF checklist sheet was not being attached to emails.
+
+Work Log:
+- Diagnosed root cause: pdfkit depends on fontkit which (a) has a broken @swc/helpers dependency resolution, and (b) more fundamentally, pdfkit loads font metric files (Helvetica.afm) from disk at runtime using a relative path that Next.js's Turbopack bundler resolves incorrectly to `/ROOT/node_modules/pdfkit/js/data/Helvetica.afm` (non-existent). The original try/catch silently swallowed this error, so the PDF was never generated and no attachment was added.
+- Added explicit console.error logging to the PDF try/catch blocks so failures are visible in dev.log (was previously silent).
+- Switched PDF library: removed `pdfkit`, `@swc/helpers`, `@types/pdfkit`; installed `pdf-lib` (pure JavaScript, zero external file dependencies, uses standard PDF fonts built into the spec — works reliably in bundled/serverless environments).
+- Rewrote `buildInspectionPdf()` in `src/lib/email.ts` using pdf-lib API:
+  - A4 page (595×842pt), coordinate helper to convert top-origin y to pdf-lib's bottom-origin.
+  - hexToRgb() + wrapText() helpers (pdf-lib has no auto-wrap).
+  - Same visual design: teal (report) / red (escalation) header bar, SQLMS branding, title + subtitle, 5 info rows (Location/Category/Completed By/Date·Time IST/Score), 4 summary cards (Passed/Failed/N/A/Score with colored backgrounds), checklist responses table with alternating row shading + colored OK/NOT OK/N/A status pills + reasons, remarks box, IST timestamp footer on every page. Multi-page support via ensureSpace().
+- Verified end-to-end (user's real Gmail SMTP, simulate OFF):
+  - Submitted inspection as employee (Oil Level NOT OK + reason).
+  - dev.log: `[email] Report PDF generated for Slitter-01: 3084 bytes` + `[email] Escalation PDF generated for Slitter-01: 2470 bytes` — both succeed.
+  - Email log: both REPORT (Sent) and ESCALATION (Sent) emails delivered with PDF attachments.
+  - POST /api/inspections took 1827ms (PDF gen + SMTP send with attachment) — no errors.
+- Cleaned test data (ran clean-demo.ts): DB back to production-ready (1 admin, 7 categories, 7 checklists, 7 departments, 0 inspections/emails/locations/employees).
+- Lint clean.
+
+Stage Summary:
+- PDF attachment issue FIXED. Root cause was pdfkit's font-file path resolution breaking under Next.js bundling. Switched to pdf-lib (pure JS, no external files). Both report and escalation emails now successfully generate and attach the checklist PDF sheet. Verified via dev.log (PDF byte counts) + email log (SENT status) with the user's real SMTP.

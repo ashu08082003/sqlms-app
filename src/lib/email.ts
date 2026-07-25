@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer"
-import PDFDocument from "pdfkit"
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { db } from "@/lib/db"
 import { parseResponses } from "@/lib/constants"
 
@@ -241,164 +241,244 @@ function buildEscalationEmail(d: InspectionEmailData): { subject: string; html: 
 }
 
 /* ---------------- PDF checklist report (attached to emails) ---------------- */
-function buildInspectionPdf(d: InspectionEmailData, isEscalation = false): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: "A4" })
-    const chunks: Buffer[] = []
-    doc.on("data", (c: Buffer) => chunks.push(c))
-    doc.on("end", () => resolve(Buffer.concat(chunks)))
-    doc.on("error", reject)
+// Uses pdf-lib (pure JS, no external font files) so it works reliably in
+// bundled/serverless environments where pdfkit's font-data lookup breaks.
 
-    const pageWidth = doc.page.width - 100 // margins
-    const accent = isEscalation ? "#dc2626" : "#0d9488"
+// A4 dimensions in points
+const PDF_W = 595.28
+const PDF_H = 841.89
+const MARGIN = 50
+const CONTENT_W = PDF_W - MARGIN * 2
 
-    // Header bar
-    doc.rect(0, 0, doc.page.width, 70).fill(accent)
-    doc
-      .fillColor("#ffffff")
-      .fontSize(18)
-      .font("Helvetica-Bold")
-      .text("SQLMS", 50, 24)
-    doc
-      .fontSize(11)
-      .font("Helvetica")
-      .text(isEscalation ? "Escalation Report" : "Inspection Report", 50, 46)
-    doc
-      .fontSize(9)
-      .text("Smart QR Logbook Management System", doc.page.width - 250, 28, {
-        width: 200,
-        align: "right",
-      })
+function hexToRgb(hex: string): ReturnType<typeof rgb> {
+  const h = hex.replace("#", "")
+  const r = parseInt(h.slice(0, 2), 16) / 255
+  const g = parseInt(h.slice(2, 4), 16) / 255
+  const b = parseInt(h.slice(4, 6), 16) / 255
+  return rgb(r, g, b)
+}
 
-    let y = 95
-
-    // Title
-    doc.fillColor("#0f172a").fontSize(16).font("Helvetica-Bold")
-    doc.text(
-      isEscalation ? "Escalation Required" : "Inspection Report",
-      50,
-      y
-    )
-    y += 24
-    doc
-      .fontSize(10)
-      .font("Helvetica")
-      .fillColor("#64748b")
-      .text(
-        isEscalation
-          ? "An inspection reported issues that require attention."
-          : "A new inspection has been completed and logged.",
-        50,
-        y
-      )
-    y += 22
-
-    // Info table
-    const infoRows: [string, string][] = [
-      ["Location", `${d.locationName} · ${d.machineName}`],
-      ["Category", `${d.categoryName}${d.departmentName ? " · " + d.departmentName : ""}`],
-      ["Completed By", `${d.userName}${d.employeeCode ? " (" + d.employeeCode + ")" : ""}`],
-      ["Date / Time", `${d.date} · ${d.time} IST`],
-      ["Score", `${d.score.toFixed(1)}%  (${d.passed} passed / ${d.failed} failed / ${d.na} N/A)`],
-    ]
-    for (const [label, value] of infoRows) {
-      doc.font("Helvetica").fontSize(9).fillColor("#94a3b8").text(label, 50, y, { width: 110 })
-      doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f172a").text(value, 165, y, { width: pageWidth - 115 })
-      y += 18
+// Wrap text to a max width using the given font/size; returns array of lines.
+function wrapText(text: string, font: { widthOfTextAtSize: (t: string, s: number) => number }, size: number, maxWidth: number): string[] {
+  const words = String(text || "").split(/\s+/)
+  const lines: string[] = []
+  let line = ""
+  for (const word of words) {
+    const test = line ? line + " " + word : word
+    if (font.widthOfTextAtSize(test, size) <= maxWidth) {
+      line = test
+    } else {
+      if (line) lines.push(line)
+      // If a single word is too long, hard-break it
+      if (font.widthOfTextAtSize(word, size) > maxWidth) {
+        let chunk = ""
+        for (const ch of word) {
+          if (font.widthOfTextAtSize(chunk + ch, size) <= maxWidth) {
+            chunk += ch
+          } else {
+            if (chunk) lines.push(chunk)
+            chunk = ch
+          }
+        }
+        line = chunk
+      } else {
+        line = word
+      }
     }
-    y += 8
+  }
+  if (line) lines.push(line)
+  return lines.length ? lines : [""]
+}
 
-    // Summary cards
-    const cardW = (pageWidth - 24) / 4
-    const cards: { label: string; value: string; color: string }[] = [
-      { label: "Passed", value: String(d.passed), color: "#dcfce7" },
-      { label: "Failed", value: String(d.failed), color: "#fee2e2" },
-      { label: "N/A", value: String(d.na), color: "#f1f5f9" },
-      { label: "Score", value: `${d.score.toFixed(1)}%`, color: accent },
-    ]
-    cards.forEach((c, i) => {
-      const x = 50 + i * (cardW + 8)
-      doc.roundedRect(x, y, cardW, 42, 6).fill(c.color)
-      doc
-        .fillColor(c.color === "#dcfce7" ? "#166534" : c.color === "#fee2e2" ? "#991b1b" : c.color === "#f1f5f9" ? "#475569" : "#ffffff")
-        .fontSize(15)
-        .font("Helvetica-Bold")
-        .text(c.value, x, y + 8, { width: cardW, align: "center" })
-        .fontSize(8)
-        .font("Helvetica")
-        .text(c.label, x, y + 28, { width: cardW, align: "center" })
-    })
-    y += 58
+async function buildInspectionPdf(d: InspectionEmailData, isEscalation = false): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
 
-    // Checklist responses table header
-    doc.font("Helvetica-Bold").fontSize(11).fillColor("#334155").text("Checklist Responses", 50, y)
-    y += 18
-    doc.rect(50, y, pageWidth, 20).fill("#f1f5f9")
-    doc.font("Helvetica-Bold").fontSize(8).fillColor("#64748b")
-    doc.text("ITEM", 56, y + 6, { width: 200 })
-    doc.text("STATUS", 280, y + 6, { width: 70 })
-    doc.text("REASON / REMARKS", 360, y + 6, { width: pageWidth - 320 })
-    y += 20
+  const accentHex = isEscalation ? "#dc2626" : "#0d9488"
+  const accent = hexToRgb(accentHex)
+  const ink = hexToRgb("#0f172a")
+  const muted = hexToRgb("#64748b")
+  const faint = hexToRgb("#94a3b8")
+  const slateBg = hexToRgb("#f1f5f9")
+  const rowBg = hexToRgb("#f8fafc")
+  const borderClr = hexToRgb("#e2e8f0")
 
-    // Rows
-    const responses = isEscalation
-      ? d.responses.filter((r) => r.status === "NOT_OK")
-      : d.responses
-    doc.font("Helvetica").fontSize(9)
-    responses.forEach((r, idx) => {
-      if (y > doc.page.height - 120) {
-        doc.addPage()
-        y = 50
-      }
-      const rowH = 24
-      if (idx % 2 === 0) {
-        doc.rect(50, y, pageWidth, rowH).fill("#f8fafc")
-      }
-      const statusColor =
-        r.status === "OK" ? "#166534" : r.status === "NOT_OK" ? "#991b1b" : "#475569"
-      const statusBg =
-        r.status === "OK" ? "#dcfce7" : r.status === "NOT_OK" ? "#fee2e2" : "#f1f5f9"
-      const statusLabel = r.status === "OK" ? "OK" : r.status === "NOT_OK" ? "NOT OK" : "N/A"
+  const page = doc.addPage([PDF_W, PDF_H])
+  // yFromTop helper: pdf-lib y origin is bottom-left
+  const yt = (yFromTop: number) => PDF_H - yFromTop
 
-      doc.fillColor("#0f172a").font("Helvetica").fontSize(9)
-      doc.text(r.item, 56, y + 7, { width: 210 })
-      // status pill
-      doc.roundedRect(280, y + 5, 52, 14, 7).fill(statusBg)
-      doc.fillColor(statusColor).font("Helvetica-Bold").fontSize(8)
-      doc.text(statusLabel, 280, y + 8, { width: 52, align: "center" })
-      doc.fillColor("#475569").font("Helvetica").fontSize(8)
-      doc.text(r.reason || "—", 360, y + 7, { width: pageWidth - 320 })
-      y += rowH
-    })
-    y += 12
-
-    // Remarks
-    if (d.remarks) {
-      if (y > doc.page.height - 100) {
-        doc.addPage()
-        y = 50
-      }
-      doc.font("Helvetica-Bold").fontSize(9).fillColor("#94a3b8").text("REMARKS", 50, y)
-      y += 14
-      doc.rect(50, y, pageWidth, 36).fill("#f8fafc").stroke("#e2e8f0")
-      doc.font("Helvetica").fontSize(9).fillColor("#334155")
-      doc.text(d.remarks, 56, y + 8, { width: pageWidth - 12, height: 28 })
-      y += 46
-    }
-
-    // Footer
-    doc
-      .fontSize(8)
-      .fillColor("#94a3b8")
-      .text(
-        `Generated by SQLMS · Smart QR Logbook Management System · ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
-        50,
-        doc.page.height - 40,
-        { width: pageWidth, align: "center" }
-      )
-
-    doc.end()
+  // ---- Header bar ----
+  page.drawRectangle({ x: 0, y: PDF_H - 70, width: PDF_W, height: 70, color: accent })
+  page.drawText("SQLMS", { x: MARGIN, y: yt(44), size: 18, font: bold, color: rgb(1, 1, 1) })
+  page.drawText(isEscalation ? "Escalation Report" : "Inspection Report", {
+    x: MARGIN,
+    y: yt(56),
+    size: 10,
+    font,
+    color: rgb(0.9, 0.9, 0.9),
   })
+
+  let y = 95
+
+  // ---- Title ----
+  page.drawText(isEscalation ? "Escalation Required" : "Inspection Report", {
+    x: MARGIN,
+    y: yt(y),
+    size: 16,
+    font: bold,
+    color: ink,
+  })
+  y += 22
+  const subtitle = isEscalation
+    ? "An inspection reported issues that require attention."
+    : "A new inspection has been completed and logged."
+  page.drawText(subtitle, { x: MARGIN, y: yt(y), size: 9, font, color: muted })
+  y += 20
+
+  // ---- Info rows ----
+  const infoRows: [string, string][] = [
+    ["Location", `${d.locationName}  ·  ${d.machineName}`],
+    ["Category", `${d.categoryName}${d.departmentName ? "  ·  " + d.departmentName : ""}`],
+    ["Completed By", `${d.userName}${d.employeeCode ? " (" + d.employeeCode + ")" : ""}`],
+    ["Date / Time", `${d.date}  ·  ${d.time} IST`],
+    ["Score", `${d.score.toFixed(1)}%   (${d.passed} passed / ${d.failed} failed / ${d.na} N/A)`],
+  ]
+  for (const [label, value] of infoRows) {
+    page.drawText(label, { x: MARGIN, y: yt(y), size: 8, font, color: faint })
+    // wrap value if too long
+    const valLines = wrapText(value, font, 10, CONTENT_W - 115)
+    valLines.forEach((ln, i) => {
+      page.drawText(ln, { x: MARGIN + 115, y: yt(y + i * 13), size: 10, font: bold, color: ink })
+    })
+    y += Math.max(16, valLines.length * 13 + 3)
+  }
+  y += 8
+
+  // ---- Summary cards ----
+  const cardW = (CONTENT_W - 24) / 4
+  const cards: { label: string; value: string; bg: string; fg: string }[] = [
+    { label: "Passed", value: String(d.passed), bg: "#dcfce7", fg: "#166534" },
+    { label: "Failed", value: String(d.failed), bg: "#fee2e2", fg: "#991b1b" },
+    { label: "N/A", value: String(d.na), bg: "#f1f5f9", fg: "#475569" },
+    { label: "Score", value: `${d.score.toFixed(1)}%`, bg: accentHex, fg: "#ffffff" },
+  ]
+  cards.forEach((c, i) => {
+    const x = MARGIN + i * (cardW + 8)
+    page.drawRectangle({ x, y: yt(y) - 42, width: cardW, height: 42, color: hexToRgb(c.bg) })
+    // centered value
+    const vw = bold.widthOfTextAtSize(c.value, 15)
+    page.drawText(c.value, {
+      x: x + (cardW - vw) / 2,
+      y: yt(y + 10),
+      size: 15,
+      font: bold,
+      color: hexToRgb(c.fg),
+    })
+    const lw = font.widthOfTextAtSize(c.label, 8)
+    page.drawText(c.label, {
+      x: x + (cardW - lw) / 2,
+      y: yt(y + 32),
+      size: 8,
+      font,
+      color: hexToRgb(c.fg),
+    })
+  })
+  y += 54
+
+  // ---- Checklist table ----
+  // (re-fetch page reference for pagination)
+  let curPage = page
+
+  function ensureSpace(needed: number) {
+    if (y + needed > PDF_H - 80) {
+      curPage = doc.addPage([PDF_W, PDF_H])
+      y = MARGIN
+    }
+  }
+
+  curPage.drawText("Checklist Responses", { x: MARGIN, y: yt(y), size: 11, font: bold, color: hexToRgb("#334155") })
+  y += 16
+  // table header row
+  curPage.drawRectangle({ x: MARGIN, y: yt(y) - 18, width: CONTENT_W, height: 18, color: slateBg })
+  curPage.drawText("ITEM", { x: MARGIN + 6, y: yt(y + 5), size: 8, font: bold, color: muted })
+  curPage.drawText("STATUS", { x: MARGIN + 230, y: yt(y + 5), size: 8, font: bold, color: muted })
+  curPage.drawText("REASON / REMARKS", { x: MARGIN + 310, y: yt(y + 5), size: 8, font: bold, color: muted })
+  y += 18
+
+  const responses = isEscalation
+    ? d.responses.filter((r) => r.status === "NOT_OK")
+    : d.responses
+
+  const statusMeta = {
+    OK: { label: "OK", bg: "#dcfce7", fg: "#166534" },
+    NOT_OK: { label: "NOT OK", bg: "#fee2e2", fg: "#991b1b" },
+    NA: { label: "N/A", bg: "#f1f5f9", fg: "#475569" },
+  } as const
+
+  responses.forEach((r, idx) => {
+    ensureSpace(26)
+    const rowH = 24
+    if (idx % 2 === 0) {
+      curPage.drawRectangle({ x: MARGIN, y: yt(y) - rowH, width: CONTENT_W, height: rowH, color: rowBg })
+    }
+    // item
+    const itemLines = wrapText(r.item, font, 9, 215)
+    itemLines.forEach((ln, i) => {
+      curPage.drawText(ln, { x: MARGIN + 6, y: yt(y + 7 + i * 11), size: 9, font, color: ink })
+    })
+    // status pill
+    const meta = statusMeta[r.status]
+    const pillW = 52
+    const pillX = MARGIN + 230
+    curPage.drawRectangle({ x: pillX, y: yt(y + 6) - 14, width: pillW, height: 14, color: hexToRgb(meta.bg) })
+    const sw = bold.widthOfTextAtSize(meta.label, 8)
+    curPage.drawText(meta.label, {
+      x: pillX + (pillW - sw) / 2,
+      y: yt(y + 9),
+      size: 8,
+      font: bold,
+      color: hexToRgb(meta.fg),
+    })
+    // reason
+    const reasonLines = wrapText(r.reason || "—", font, 8, CONTENT_W - 320)
+    reasonLines.forEach((ln, i) => {
+      curPage.drawText(ln, { x: MARGIN + 310, y: yt(y + 7 + i * 10), size: 8, font, color: hexToRgb("#475569") })
+    })
+    y += Math.max(rowH, Math.max(itemLines.length, reasonLines.length) * 11 + 8)
+  })
+  y += 12
+
+  // ---- Remarks ----
+  if (d.remarks) {
+    ensureSpace(50)
+    curPage.drawText("REMARKS", { x: MARGIN, y: yt(y), size: 8, font: bold, color: faint })
+    y += 12
+    const remarkLines = wrapText(d.remarks, font, 9, CONTENT_W - 12)
+    const boxH = Math.max(32, remarkLines.length * 12 + 8)
+    curPage.drawRectangle({ x: MARGIN, y: yt(y) - boxH, width: CONTENT_W, height: boxH, color: rowBg })
+    curPage.drawRectangle({ x: MARGIN, y: yt(y) - boxH, width: CONTENT_W, height: boxH, borderColor: borderClr, borderWidth: 0.5 })
+    remarkLines.forEach((ln, i) => {
+      curPage.drawText(ln, { x: MARGIN + 6, y: yt(y + 8 + i * 12), size: 9, font, color: hexToRgb("#334155") })
+    })
+    y += boxH + 8
+  }
+
+  // ---- Footer (on every page) ----
+  const footerText = `Generated by SQLMS · Smart QR Logbook Management System · ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+  doc.getPages().forEach((p) => {
+    const fw = font.widthOfTextAtSize(footerText, 7)
+    p.drawText(footerText, {
+      x: (PDF_W - fw) / 2,
+      y: 30,
+      size: 7,
+      font,
+      color: faint,
+    })
+  })
+
+  const bytes = await doc.save()
+  return Buffer.from(bytes)
 }
 
 /* ---------------- Sending ---------------- */
@@ -529,13 +609,17 @@ export async function sendInspectionEmails(inspectionId: string): Promise<void> 
   let escalationPdf: Buffer | null = null
   try {
     reportPdf = await buildInspectionPdf(data, false)
-  } catch {
+    console.log(`[email] Report PDF generated for ${data.machineName}: ${reportPdf.length} bytes`)
+  } catch (err) {
+    console.error("[email] Report PDF generation failed:", err instanceof Error ? err.message : err)
     reportPdf = null
   }
   if (inspection.failedCount > 0) {
     try {
       escalationPdf = await buildInspectionPdf(data, true)
-    } catch {
+      console.log(`[email] Escalation PDF generated for ${data.machineName}: ${escalationPdf.length} bytes`)
+    } catch (err) {
+      console.error("[email] Escalation PDF generation failed:", err instanceof Error ? err.message : err)
       escalationPdf = null
     }
   }
