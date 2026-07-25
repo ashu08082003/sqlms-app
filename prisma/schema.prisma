@@ -1,0 +1,110 @@
+// Smart QR Logbook Management System (SQLMS)
+// Digital Inspection & Maintenance System (DIMS)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  name         String
+  passwordHash String
+  role         String      @default("EMPLOYEE") // ADMIN | EMPLOYEE
+  employeeCode String?     @unique
+  phone        String?
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  inspections Inspection[]
+}
+
+model Department {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  users     User[]
+  locations Location[]
+}
+
+model Category {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  slug        String      @unique
+  icon        String      @default("Factory")
+  color       String      @default("#0d9488")
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  checklists Checklist[]
+  locations  Location[]
+}
+
+model Checklist {
+  id          String   @id @default(cuid())
+  name        String
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  description String?
+  frequency   String   @default("DAILY") // DAILY | WEEKLY | MONTHLY | QUARTERLY
+  // JSON array of checklist item labels: ["Greasing", "Oil Level", ...]
+  items       String   @default("[]")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  locations   Location[]
+  inspections Inspection[]
+}
+
+model Location {
+  id           String      @id @default(cuid())
+  qrCode       String      @unique // e.g. QR000124
+  categoryId   String
+  category     Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name         String // e.g. "Slitting Line"
+  machineName  String // e.g. "Slitter-01"
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  checklistId  String?
+  checklist    Checklist?  @relation(fields: [checklistId], references: [id], onDelete: SetNull)
+  frequency    String      @default("DAILY")
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  inspections Inspection[]
+}
+
+model Inspection {
+  id           String    @id @default(cuid())
+  locationId   String
+  location     Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checklistId  String?
+  checklist    Checklist? @relation(fields: [checklistId], references: [id], onDelete: SetNull)
+  inspectionDate DateTime @default(now())
+  // JSON array of responses: [{ item, status: "OK"|"NOT_OK"|"NA", reason?, photoUrl? }]
+  responses    String    @default("[]")
+  remarks      String?
+  photoUrl     String?
+  passedCount  Int       @default(0)
+  failedCount  Int       @default(0)
+  naCount      Int       @default(0)
+  score        Float     @default(0) // percentage of OK among OK+NOT_OK
+  status       String    @default("COMPLETED") // COMPLETED | OVERDUE_PENDING
+  createdAt    DateTime  @default(now())
+}

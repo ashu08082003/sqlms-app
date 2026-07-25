@@ -1,0 +1,970 @@
+     1→"use client"
+     2→
+     3→import { useEffect, useMemo, useState } from "react"
+     4→import { motion, AnimatePresence } from "framer-motion"
+     5→import {
+     6→  QrCode as QrCodeIcon,
+     7→  Camera,
+     8→  Keyboard,
+     9→  Loader2,
+    10→  ArrowLeft,
+    11→  CheckCircle2,
+    12→  X,
+    13→  Upload,
+    14→  ScanLine,
+    15→  ClipboardCheck,
+    16→  Calendar,
+    17→  Clock,
+    18→  User as UserIcon,
+    19→  Building2,
+    20→  Tag,
+    21→  Hash,
+    22→  AlertTriangle,
+    23→  ShieldCheck,
+    24→} from "lucide-react"
+    25→import { useQuery } from "@tanstack/react-query"
+    26→import { toast } from "sonner"
+    27→
+    28→import { Button } from "@/components/ui/button"
+    29→import { Input } from "@/components/ui/input"
+    30→import { Label } from "@/components/ui/label"
+    31→import { Textarea } from "@/components/ui/textarea"
+    32→import {
+    33→  Card,
+    34→  CardContent,
+    35→  CardHeader,
+    36→  CardTitle,
+    37→  CardDescription,
+    38→} from "@/components/ui/card"
+    39→import { Separator } from "@/components/ui/separator"
+    40→import { Skeleton } from "@/components/ui/skeleton"
+    41→import { CategoryBadge } from "@/components/category-badge"
+    42→import { QrScanner } from "@/components/qr-scanner"
+    43→import { EmptyState } from "@/components/empty-state"
+    44→import {
+    45→  apiFetch,
+    46→  fileToDataUrl,
+    47→  formatDate,
+    48→  formatTime,
+    49→  formatDateTime,
+    50→} from "@/lib/api-client"
+    51→import { useAppStore } from "@/store/app-store"
+    52→import { STATUS_META, frequencyLabel } from "@/lib/constants"
+    53→import { cn } from "@/lib/utils"
+    54→import type { ItemStatus } from "@/lib/types"
+    55→
+    56→/* ---------- Local API shape interfaces ---------- */
+    57→interface ResolvedLocation {
+    58→  id: string
+    59→  qrCode: string
+    60→  name: string
+    61→  machineName: string
+    62→  frequency: string
+    63→  categoryName: string
+    64→  categoryColor: string
+    65→  categoryIcon: string
+    66→  departmentName: string | null
+    67→}
+    68→interface ResolvedChecklist {
+    69→  id: string
+    70→  name: string
+    71→  description: string | null
+    72→  frequency: string
+    73→  items: string[]
+    74→}
+    75→interface ResolveResponse {
+    76→  location: ResolvedLocation
+    77→  checklist: ResolvedChecklist | null
+    78→}
+    79→interface SubmitInspectionResponse {
+    80→  inspection: {
+    81→    id: string
+    82→    inspectionDate: string
+    83→    passedCount: number
+    84→    failedCount: number
+    85→    naCount: number
+    86→    score: number
+    87→    location: { name: string; machineName: string; categoryName: string }
+    88→    user: { name: string }
+    89→  }
+    90→}
+    91→interface RecentInspection {
+    92→  id: string
+    93→  inspectionDate: string
+    94→  score: number
+    95→  passedCount: number
+    96→  failedCount: number
+    97→  naCount: number
+    98→  location: {
+    99→    id: string
+   100→    qrCode: string
+   101→    name: string
+   102→    machineName: string
+   103→    categoryName: string
+   104→    categoryColor: string
+   105→    departmentName: string | null
+   106→  }
+   107→  user: { id: string; name: string; employeeCode: string | null }
+   108→}
+   109→
+   110→type Phase = "idle" | "resolving" | "form" | "submitting" | "success"
+   111→type ItemFormState = {
+   112→  status: ItemStatus | null
+   113→  reason: string
+   114→  photoUrl: string | null
+   115→}
+   116→
+   117→const MAX_PHOTO_BYTES = 1.5 * 1024 * 1024
+   118→
+   119→/* ---------- Helpers ---------- */
+   120→function extractQr(raw: string): string | null {
+   121→  const m = raw.match(/QR\d+/i)
+   122→  return m ? m[0].toUpperCase() : null
+   123→}
+   124→
+   125→function ScoreBadge({
+   126→  score,
+   127→  failed,
+   128→}: {
+   129→  score: number
+   130→  failed?: number
+   131→}) {
+   132→  const cls =
+   133→    score >= 95
+   134→      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-500/30"
+   135→      : score >= 80
+   136→        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/30"
+   137→        : "bg-red-500/15 text-red-700 dark:text-red-400 ring-1 ring-red-500/30"
+   138→  return (
+   139→    <span
+   140→      className={cn(
+   141→        "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold",
+   142→        cls
+   143→      )}
+   144→    >
+   145→      {score.toFixed(1)}%
+   146→      {failed && failed > 0 ? ` · ${failed} fail` : ""}
+   147→    </span>
+   148→  )
+   149→}
+   150→
+   151→function Meta({
+   152→  icon: Icon,
+   153→  label,
+   154→  value,
+   155→}: {
+   156→  icon: typeof Hash
+   157→  label: string
+   158→  value: string
+   159→}) {
+   160→  return (
+   161→    <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5">
+   162→      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+   163→      <div className="min-w-0">
+   164→        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   165→          {label}
+   166→        </p>
+   167→        <p className="truncate text-xs font-medium">{value}</p>
+   168→      </div>
+   169→    </div>
+   170→  )
+   171→}
+   172→
+   173→function PhotoInput({
+   174→  label,
+   175→  photoUrl,
+   176→  onSelect,
+   177→  onClear,
+   178→}: {
+   179→  label: string
+   180→  photoUrl: string | null
+   181→  onSelect: (f: File | undefined) => void
+   182→  onClear: () => void
+   183→}) {
+   184→  return (
+   185→    <div className="space-y-1.5">
+   186→      <Label className="text-xs text-muted-foreground">{label}</Label>
+   187→      {photoUrl ? (
+   188→        <div className="relative inline-block">
+   189→          <img
+   190→            src={photoUrl}
+   191→            alt="Uploaded inspection photo"
+   192→            className="h-24 w-24 rounded-md border object-cover"
+   193→          />
+   194→          <button
+   195→            type="button"
+   196→            onClick={onClear}
+   197→            className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white shadow-md transition hover:bg-destructive/90"
+   198→            aria-label="Remove photo"
+   199→          >
+   200→            <X className="h-3 w-3" />
+   201→          </button>
+   202→        </div>
+   203→      ) : (
+   204→        <label className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed text-sm text-muted-foreground transition hover:bg-accent">
+   205→          <Upload className="h-4 w-4" /> Upload photo
+   206→          <input
+   207→            type="file"
+   208→            accept="image/*"
+   209→            className="sr-only"
+   210→            onChange={(e) => onSelect(e.target.files?.[0] ?? undefined)}
+   211→          />
+   212→        </label>
+   213→      )}
+   214→    </div>
+   215→  )
+   216→}
+   217→
+   218→function ItemCard({
+   219→  idx,
+   220→  label,
+   221→  state,
+   222→  onStatus,
+   223→  onReason,
+   224→  onPhotoSelect,
+   225→  onClearPhoto,
+   226→}: {
+   227→  idx: number
+   228→  label: string
+   229→  state: ItemFormState
+   230→  onStatus: (s: ItemStatus) => void
+   231→  onReason: (r: string) => void
+   232→  onPhotoSelect: (f: File | undefined) => void
+   233→  onClearPhoto: () => void
+   234→}) {
+   235→  return (
+   236→    <div
+   237→      className={cn(
+   238→        "rounded-lg border p-3 transition",
+   239→        state.status === "NOT_OK" &&
+   240→          "border-red-300 dark:border-red-500/40 bg-red-50/40 dark:bg-red-500/5"
+   241→      )}
+   242→    >
+   243→      <div className="flex items-center gap-2">
+   244→        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+   245→          {idx + 1}
+   246→        </span>
+   247→        <span className="text-sm font-medium">{label}</span>
+   248→      </div>
+   249→      <div className="mt-2.5 grid grid-cols-3 gap-2" role="group" aria-label={`Status for ${label}`}>
+   250→        {(["OK", "NOT_OK", "NA"] as ItemStatus[]).map((s) => {
+   251→          const meta = STATUS_META[s]
+   252→          const selected = state.status === s
+   253→          return (
+   254→            <button
+   255→              key={s}
+   256→              type="button"
+   257→              onClick={() => onStatus(s)}
+   258→              aria-pressed={selected}
+   259→              aria-label={`${meta.label} for ${label}`}
+   260→              className={cn(
+   261→                "flex h-11 items-center justify-center rounded-md text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+   262→                selected
+   263→                  ? cn(meta.bg, "text-white ring-2", meta.ring)
+   264→                  : "border border-input bg-background hover:bg-accent"
+   265→              )}
+   266→            >
+   267→              {meta.label}
+   268→            </button>
+   269→          )
+   270→        })}
+   271→      </div>
+   272→      <AnimatePresence initial={false}>
+   273→        {state.status === "NOT_OK" && (
+   274→          <motion.div
+   275→            initial={{ height: 0, opacity: 0 }}
+   276→            animate={{ height: "auto", opacity: 1 }}
+   277→            exit={{ height: 0, opacity: 0 }}
+   278→            transition={{ duration: 0.2 }}
+   279→            className="overflow-hidden"
+   280→          >
+   281→            <div className="mt-3 space-y-2">
+   282→              <div className="space-y-1.5">
+   283→                <Label htmlFor={`reason-${idx}`} className="text-xs text-muted-foreground">
+   284→                  Reason (required)
+   285→                </Label>
+   286→                <Textarea
+   287→                  id={`reason-${idx}`}
+   288→                  value={state.reason}
+   289→                  onChange={(e) => onReason(e.target.value)}
+   290→                  placeholder="Describe the issue..."
+   291→                  className="min-h-20"
+   292→                />
+   293→              </div>
+   294→              <PhotoInput
+   295→                label="Photo (optional, encouraged)"
+   296→                photoUrl={state.photoUrl}
+   297→                onSelect={onPhotoSelect}
+   298→                onClear={onClearPhoto}
+   299→              />
+   300→            </div>
+   301→          </motion.div>
+   302→        )}
+   303→      </AnimatePresence>
+   304→    </div>
+   305→  )
+   306→}
+   307→
+   308→/* ---------- Main view ---------- */
+   309→export function EmployeeScanView({ initialQr }: { initialQr: string | null }) {
+   310→  const user = useAppStore((s) => s.user)
+   311→  const bump = useAppStore((s) => s.bump)
+   312→
+   313→  const [phase, setPhase] = useState<Phase>(() =>
+   314→    initialQr && extractQr(initialQr) ? "resolving" : "idle"
+   315→  )
+   316→  const [qrInput, setQrInput] = useState("")
+   317→  const [scanning, setScanning] = useState(false)
+   318→  const [resolvedCode, setResolvedCode] = useState<string | null>(() =>
+   319→    initialQr ? extractQr(initialQr) : null
+   320→  )
+   321→  const [resolved, setResolved] = useState<ResolveResponse | null>(null)
+   322→  const [submitResult, setSubmitResult] = useState<SubmitInspectionResponse | null>(null)
+   323→
+   324→  const [itemStates, setItemStates] = useState<ItemFormState[]>([])
+   325→  const [remarks, setRemarks] = useState("")
+   326→  const [overallPhoto, setOverallPhoto] = useState<string | null>(null)
+   327→  const [now, setNow] = useState<Date>(() => new Date())
+   328→
+   329→  /* Recent inspections for the idle screen */
+   330→  const recentQuery = useQuery({
+   331→    queryKey: ["my-recent-inspections", user?.id],
+   332→    queryFn: () =>
+   333→      apiFetch<{ inspections: RecentInspection[] }>(
+   334→        `/api/inspections?userId=${user!.id}`
+   335→      ).then((r) => r.inspections.slice(0, 5)),
+   336→    enabled: !!user && phase === "idle",
+   337→  })
+   338→
+   339→  /* Resolve effect — runs whenever we enter the resolving phase. */
+   340→  useEffect(() => {
+   341→    if (phase !== "resolving" || !resolvedCode) return
+   342→    let cancelled = false
+   343→    apiFetch<ResolveResponse>(`/api/locations/qr/${resolvedCode}`)
+   344→      .then((data) => {
+   345→        if (cancelled) return
+   346→        if (!data.checklist || data.checklist.items.length === 0) {
+   347→          toast.error("No checklist assigned to this location")
+   348→          setPhase("idle")
+   349→          setResolvedCode(null)
+   350→          return
+   351→        }
+   352→        setResolved(data)
+   353→        setItemStates(
+   354→          data.checklist.items.map(() => ({
+   355→            status: null,
+   356→            reason: "",
+   357→            photoUrl: null,
+   358→          }))
+   359→        )
+   360→        setRemarks("")
+   361→        setOverallPhoto(null)
+   362→        setNow(new Date())
+   363→        setPhase("form")
+   364→      })
+   365→      .catch((err) => {
+   366→        if (cancelled) return
+   367→        toast.error(
+   368→          err instanceof Error ? err.message : "QR code not found"
+   369→        )
+   370→        setPhase("idle")
+   371→        setResolvedCode(null)
+   372→      })
+   373→    return () => {
+   374→      cancelled = true
+   375→    }
+   376→  }, [phase, resolvedCode])
+   377→
+   378→  function startResolve(code: string) {
+   379→    setResolvedCode(code)
+   380→    setScanning(false)
+   381→    setPhase("resolving")
+   382→  }
+   383→
+   384→  function handleScanResult(decoded: string) {
+   385→    const code = extractQr(decoded)
+   386→    if (!code) {
+   387→      toast.error("Could not read QR code. Try again or enter it manually.")
+   388→      return
+   389→    }
+   390→    startResolve(code)
+   391→  }
+   392→
+   393→  function handleManualSubmit(e: React.FormEvent) {
+   394→    e.preventDefault()
+   395→    const trimmed = qrInput.trim().toUpperCase()
+   396→    if (!/^QR\d+$/.test(trimmed)) {
+   397→      toast.error("Enter a valid QR code (e.g. QR000124)")
+   398→      return
+   399→    }
+   400→    setQrInput("")
+   401→    startResolve(trimmed)
+   402→  }
+   403→
+   404→  function resetAll() {
+   405→    setPhase("idle")
+   406→    setResolvedCode(null)
+   407→    setResolved(null)
+   408→    setSubmitResult(null)
+   409→    setItemStates([])
+   410→    setRemarks("")
+   411→    setOverallPhoto(null)
+   412→    setScanning(false)
+   413→  }
+   414→
+   415→  const summary = useMemo(() => {
+   416→    let ok = 0
+   417→    let notOk = 0
+   418→    let na = 0
+   419→    for (const s of itemStates) {
+   420→      if (s.status === "OK") ok++
+   421→      else if (s.status === "NOT_OK") notOk++
+   422→      else if (s.status === "NA") na++
+   423→    }
+   424→    const denom = ok + notOk
+   425→    const score = denom === 0 ? 100 : Math.round((ok / denom) * 1000) / 10
+   426→    return { ok, notOk, na, score }
+   427→  }, [itemStates])
+   428→
+   429→  const canSubmit = useMemo(() => {
+   430→    if (itemStates.length === 0) return false
+   431→    for (const s of itemStates) {
+   432→      if (!s.status) return false
+   433→      if (s.status === "NOT_OK" && !s.reason.trim()) return false
+   434→    }
+   435→    return true
+   436→  }, [itemStates])
+   437→
+   438→  const isDirty = useMemo(() => {
+   439→    if (remarks.trim()) return true
+   440→    if (overallPhoto) return true
+   441→    return itemStates.some(
+   442→      (s) =>
+   443→        s.status !== null || s.reason.trim() !== "" || s.photoUrl !== null
+   444→    )
+   445→  }, [itemStates, remarks, overallPhoto])
+   446→
+   447→  function setItemStatus(idx: number, status: ItemStatus) {
+   448→    setItemStates((prev) =>
+   449→      prev.map((s, i) =>
+   450→        i === idx ? { ...s, status: s.status === status ? null : status } : s
+   451→      )
+   452→    )
+   453→  }
+   454→  function setItemReason(idx: number, reason: string) {
+   455→    setItemStates((prev) =>
+   456→      prev.map((s, i) => (i === idx ? { ...s, reason } : s))
+   457→    )
+   458→  }
+   459→  function setItemPhoto(idx: number, photoUrl: string | null) {
+   460→    setItemStates((prev) =>
+   461→      prev.map((s, i) => (i === idx ? { ...s, photoUrl } : s))
+   462→    )
+   463→  }
+   464→
+   465→  async function handlePhotoSelect(
+   466→    file: File | undefined,
+   467→    onSet: (url: string | null) => void
+   468→  ) {
+   469→    if (!file) return
+   470→    if (file.size > MAX_PHOTO_BYTES) {
+   471→      toast.warning("Image is too large (max 1.5 MB)")
+   472→      return
+   473→    }
+   474→    try {
+   475→      const url = await fileToDataUrl(file)
+   476→      onSet(url)
+   477→    } catch {
+   478→      toast.error("Could not read image file")
+   479→    }
+   480→  }
+   481→
+   482→  function handleCancel() {
+   483→    if (
+   484→      isDirty &&
+   485→      !window.confirm("Discard this inspection? Your entries will be lost.")
+   486→    )
+   487→      return
+   488→    resetAll()
+   489→  }
+   490→
+   491→  async function handleSubmit() {
+   492→    if (!resolved || !resolved.checklist) return
+   493→    if (!canSubmit) {
+   494→      for (let i = 0; i < itemStates.length; i++) {
+   495→        const s = itemStates[i]
+   496→        if (!s.status) {
+   497→          toast.error(
+   498→            `Please set a status for item ${i + 1}: "${resolved.checklist.items[i]}"`
+   499→          )
+   500→          return
+   501→        }
+   502→        if (s.status === "NOT_OK" && !s.reason.trim()) {
+   503→          toast.error(
+   504→            `Please provide a reason for "${resolved.checklist.items[i]}" (marked Not OK)`
+   505→          )
+   506→          return
+   507→        }
+   508→      }
+   509→      return
+   510→    }
+   511→    setPhase("submitting")
+   512→    try {
+   513→      const responses = itemStates.map((s, i) => ({
+   514→        item: resolved.checklist!.items[i],
+   515→        status: s.status!,
+   516→        reason: s.status === "NOT_OK" ? s.reason.trim() : undefined,
+   517→        photoUrl: s.photoUrl ?? undefined,
+   518→      }))
+   519→      const result = await apiFetch<SubmitInspectionResponse>(
+   520→        "/api/inspections",
+   521→        {
+   522→          method: "POST",
+   523→          body: JSON.stringify({
+   524→            locationId: resolved.location.id,
+   525→            responses,
+   526→            remarks: remarks.trim() || undefined,
+   527→            photoUrl: overallPhoto ?? undefined,
+   528→          }),
+   529→        }
+   530→      )
+   531→      setSubmitResult(result)
+   532→      bump()
+   533→      setPhase("success")
+   534→      toast.success("Inspection submitted")
+   535→    } catch (err) {
+   536→      toast.error(
+   537→        err instanceof Error ? err.message : "Failed to submit inspection"
+   538→      )
+   539→      setPhase("form")
+   540→    }
+   541→  }
+   542→
+   543→  /* ---------- Render ---------- */
+   544→  return (
+   545→    <AnimatePresence mode="wait">
+   546→      <motion.div
+   547→        key={phase}
+   548→        initial={{ opacity: 0, y: 8 }}
+   549→        animate={{ opacity: 1, y: 0 }}
+   550→        exit={{ opacity: 0, y: -8 }}
+   551→        transition={{ duration: 0.18 }}
+   552→      >
+   553→        {/* ===== IDLE ===== */}
+   554→        {phase === "idle" && (
+   555→          <div className="space-y-6">
+   556→            <Card className="overflow-hidden border-0 p-0">
+   557→              <div className="brand-gradient relative p-6 text-white sm:p-8">
+   558→                <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+   559→                <div className="relative flex items-center gap-3">
+   560→                  <div className="rounded-xl bg-white/15 p-2.5 backdrop-blur">
+   561→                    <QrCodeIcon className="h-6 w-6" />
+   562→                  </div>
+   563→                  <div>
+   564→                    <h2 className="text-xl font-bold sm:text-2xl">
+   565→                      Scan to Inspect
+   566→                    </h2>
+   567→                    <p className="text-sm text-white/85">
+   568→                      Point your camera at the location QR code or enter it manually.
+   569→                    </p>
+   570→                  </div>
+   571→                </div>
+   572→              </div>
+   573→              <CardContent className="space-y-4 p-4 sm:p-6">
+   574→                <Button
+   575→                  onClick={() => setScanning((v) => !v)}
+   576→                  className="h-12 w-full text-base"
+   577→                  variant={scanning ? "outline" : "default"}
+   578→                >
+   579→                  {scanning ? (
+   580→                    <>
+   581→                      <X className="mr-2 h-5 w-5" /> Stop camera
+   582→                    </>
+   583→                  ) : (
+   584→                    <>
+   585→                      <Camera className="mr-2 h-5 w-5" /> Scan with camera
+   586→                    </>
+   587→                  )}
+   588→                </Button>
+   589→
+   590→                {scanning && (
+   591→                  <QrScanner
+   592→                    onScan={handleScanResult}
+   593→                    onClose={() => setScanning(false)}
+   594→                  />
+   595→                )}
+   596→
+   597→                <div className="relative py-1">
+   598→                  <div className="absolute inset-0 flex items-center">
+   599→                    <span className="h-px w-full bg-border" />
+   600→                  </div>
+   601→                  <div className="relative flex justify-center">
+   602→                    <span className="bg-card px-3 text-xs uppercase tracking-wide text-muted-foreground">
+   603→                      or enter manually
+   604→                    </span>
+   605→                  </div>
+   606→                </div>
+   607→
+   608→                <form
+   609→                  onSubmit={handleManualSubmit}
+   610→                  className="flex flex-col gap-2 sm:flex-row"
+   611→                >
+   612→                  <Input
+   613→                    value={qrInput}
+   614→                    onChange={(e) => setQrInput(e.target.value)}
+   615→                    placeholder="QR000124"
+   616→                    className="h-12 text-base font-mono uppercase"
+   617→                    autoCapitalize="characters"
+   618→                    autoCorrect="off"
+   619→                    aria-label="QR code"
+   620→                  />
+   621→                  <Button
+   622→                    type="submit"
+   623→                    className="h-12 sm:w-auto"
+   624→                    disabled={!qrInput.trim()}
+   625→                  >
+   626→                    <Keyboard className="mr-2 h-4 w-4" /> Continue
+   627→                  </Button>
+   628→                </form>
+   629→
+   630→                {user && (
+   631→                  <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+   632→                    <UserIcon className="h-3.5 w-3.5" /> Signed in as{" "}
+   633→                    <span className="font-medium text-foreground">
+   634→                      {user.name}
+   635→                    </span>
+   636→                    {user.role === "ADMIN" && (
+   637→                      <span className="ml-1 inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+   638→                        <ShieldCheck className="h-3 w-3" /> Admin
+   639→                      </span>
+   640→                    )}
+   641→                  </p>
+   642→                )}
+   643→              </CardContent>
+   644→            </Card>
+   645→
+   646→            <Card>
+   647→              <CardHeader>
+   648→                <CardTitle className="flex items-center gap-2 text-base">
+   649→                  <ClipboardCheck className="h-4 w-4 text-primary" /> My recent
+   650→                  inspections
+   651→                </CardTitle>
+   652→                <CardDescription>
+   653→                  Your last 5 completed inspections across all locations.
+   654→                </CardDescription>
+   655→              </CardHeader>
+   656→              <CardContent>
+   657→                {recentQuery.isLoading ? (
+   658→                  <div className="space-y-2">
+   659→                    {[0, 1, 2].map((i) => (
+   660→                      <Skeleton key={i} className="h-14 w-full" />
+   661→                    ))}
+   662→                  </div>
+   663→                ) : recentQuery.data && recentQuery.data.length > 0 ? (
+   664→                  <ul className="max-h-64 space-y-2 overflow-y-auto scrollbar-thin">
+   665→                    {recentQuery.data.map((insp) => (
+   666→                      <li
+   667→                        key={insp.id}
+   668→                        className="flex items-center justify-between gap-3 rounded-lg border p-3"
+   669→                      >
+   670→                        <div className="min-w-0">
+   671→                          <p className="truncate text-sm font-medium">
+   672→                            {insp.location.name}
+   673→                          </p>
+   674→                          <p className="truncate text-xs text-muted-foreground">
+   675→                            {insp.location.machineName} ·{" "}
+   676→                            {formatDateTime(insp.inspectionDate)}
+   677→                          </p>
+   678→                        </div>
+   679→                        <ScoreBadge
+   680→                          score={insp.score}
+   681→                          failed={insp.failedCount}
+   682→                        />
+   683→                      </li>
+   684→                    ))}
+   685→                  </ul>
+   686→                ) : (
+   687→                  <EmptyState
+   688→                    icon={ClipboardCheck}
+   689→                    title="No inspections yet"
+   690→                    description="Your completed inspections will appear here."
+   691→                  />
+   692→                )}
+   693→              </CardContent>
+   694→            </Card>
+   695→          </div>
+   696→        )}
+   697→
+   698→        {/* ===== RESOLVING ===== */}
+   699→        {phase === "resolving" && (
+   700→          <Card>
+   701→            <CardContent className="p-6">
+   702→              <div className="flex flex-col items-center gap-3 py-12 text-center">
+   703→                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+   704→                <p className="text-sm font-medium">Resolving {resolvedCode}…</p>
+   705→                <p className="text-xs text-muted-foreground">
+   706→                  Fetching checklist for this location
+   707→                </p>
+   708→              </div>
+   709→            </CardContent>
+   710→          </Card>
+   711→        )}
+   712→
+   713→        {/* ===== FORM / SUBMITTING ===== */}
+   714→        {(phase === "form" || phase === "submitting") && resolved && (
+   715→          <div className="space-y-4">
+   716→            {/* Location header card */}
+   717→            <Card>
+   718→              <CardContent className="space-y-4 p-4 sm:p-6">
+   719→                <div className="flex items-start justify-between gap-3">
+   720→                  <CategoryBadge
+   721→                    icon={resolved.location.categoryIcon}
+   722→                    color={resolved.location.categoryColor}
+   723→                    name={resolved.location.categoryName}
+   724→                  />
+   725→                  <Button
+   726→                    variant="ghost"
+   727→                    size="sm"
+   728→                    onClick={handleCancel}
+   729→                    disabled={phase === "submitting"}
+   730→                  >
+   731→                    <ArrowLeft className="mr-1 h-4 w-4" /> Cancel
+   732→                  </Button>
+   733→                </div>
+   734→                <div>
+   735→                  <h2 className="text-xl font-bold sm:text-2xl">
+   736→                    {resolved.location.name}
+   737→                  </h2>
+   738→                  <p className="text-sm text-muted-foreground">
+   739→                    {resolved.location.machineName}
+   740→                  </p>
+   741→                </div>
+   742→                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+   743→                  <Meta
+   744→                    icon={Hash}
+   745→                    label="QR"
+   746→                    value={resolved.location.qrCode}
+   747→                  />
+   748→                  <Meta
+   749→                    icon={Building2}
+   750→                    label="Dept"
+   751→                    value={resolved.location.departmentName ?? "—"}
+   752→                  />
+   753→                  <Meta
+   754→                    icon={Calendar}
+   755→                    label="Frequency"
+   756→                    value={frequencyLabel(resolved.location.frequency)}
+   757→                  />
+   758→                  <Meta
+   759→                    icon={Tag}
+   760→                    label="Checklist"
+   761→                    value={resolved.checklist?.name ?? "—"}
+   762→                  />
+   763→                </div>
+   764→                <Separator />
+   765→                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+   766→                  <Meta icon={Calendar} label="Date (auto)" value={formatDate(now)} />
+   767→                  <Meta icon={Clock} label="Time (auto)" value={formatTime(now)} />
+   768→                  <Meta
+   769→                    icon={UserIcon}
+   770→                    label="User (auto)"
+   771→                    value={user?.name ?? "—"}
+   772→                  />
+   773→                </div>
+   774→              </CardContent>
+   775→            </Card>
+   776→
+   777→            {/* Checklist items */}
+   778→            <Card>
+   779→              <CardHeader>
+   780→                <CardTitle className="text-base">Inspection checklist</CardTitle>
+   781→                {resolved.checklist?.description && (
+   782→                  <CardDescription>
+   783→                    {resolved.checklist.description}
+   784→                  </CardDescription>
+   785→                )}
+   786→              </CardHeader>
+   787→              <CardContent className="space-y-3">
+   788→                {resolved.checklist!.items.map((item, idx) => (
+   789→                  <ItemCard
+   790→                    key={`${item}-${idx}`}
+   791→                    idx={idx}
+   792→                    label={item}
+   793→                    state={itemStates[idx] ?? { status: null, reason: "", photoUrl: null }}
+   794→                    onStatus={(s) => setItemStatus(idx, s)}
+   795→                    onReason={(r) => setItemReason(idx, r)}
+   796→                    onPhotoSelect={(f) =>
+   797→                      handlePhotoSelect(f, (url) => setItemPhoto(idx, url))
+   798→                    }
+   799→                    onClearPhoto={() => setItemPhoto(idx, null)}
+   800→                  />
+   801→                ))}
+   802→
+   803→                <Separator />
+   804→
+   805→                {/* Overall remarks */}
+   806→                <div className="space-y-1.5">
+   807→                  <Label htmlFor="remarks">Remarks (optional)</Label>
+   808→                  <Textarea
+   809→                    id="remarks"
+   810→                    value={remarks}
+   811→                    onChange={(e) => setRemarks(e.target.value)}
+   812→                    placeholder="Add any general notes about this inspection..."
+   813→                  />
+   814→                </div>
+   815→
+   816→                <PhotoInput
+   817→                  label="Overall photo (optional)"
+   818→                  photoUrl={overallPhoto}
+   819→                  onSelect={(f) => handlePhotoSelect(f, setOverallPhoto)}
+   820→                  onClear={() => setOverallPhoto(null)}
+   821→                />
+   822→
+   823→                {/* Live summary */}
+   824→                <div className="rounded-lg border bg-muted/40 p-3">
+   825→                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+   826→                    <div className="flex items-center gap-2">
+   827→                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+   828→                        {summary.ok} OK
+   829→                      </span>
+   830→                      <span className="text-muted-foreground">·</span>
+   831→                      <span className="font-semibold text-red-700 dark:text-red-400">
+   832→                        {summary.notOk} Not OK
+   833→                      </span>
+   834→                      <span className="text-muted-foreground">·</span>
+   835→                      <span className="font-semibold text-zinc-600 dark:text-zinc-400">
+   836→                        {summary.na} N/A
+   837→                      </span>
+   838→                    </div>
+   839→                    <span className="font-semibold">
+   840→                      Score: {summary.score.toFixed(1)}%
+   841→                    </span>
+   842→                  </div>
+   843→                </div>
+   844→              </CardContent>
+   845→            </Card>
+   846→
+   847→            {/* Sticky bottom action bar */}
+   848→            <div className="sticky bottom-0 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+   849→              <div className="flex gap-2">
+   850→                <Button
+   851→                  variant="outline"
+   852→                  className="h-12 flex-1"
+   853→                  onClick={handleCancel}
+   854→                  disabled={phase === "submitting"}
+   855→                >
+   856→                  <ArrowLeft className="mr-2 h-4 w-4" /> Cancel
+   857→                </Button>
+   858→                <Button
+   859→                  className="h-12 flex-1"
+   860→                  onClick={handleSubmit}
+   861→                  disabled={!canSubmit || phase === "submitting"}
+   862→                >
+   863→                  {phase === "submitting" ? (
+   864→                    <>
+   865→                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+   866→                      Submitting…
+   867→                    </>
+   868→                  ) : (
+   869→                    <>
+   870→                      <CheckCircle2 className="mr-2 h-4 w-4" /> Submit Inspection
+   871→                    </>
+   872→                  )}
+   873→                </Button>
+   874→              </div>
+   875→              {!canSubmit && phase === "form" && (
+   876→                <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+   877→                  <AlertTriangle className="h-3 w-3" />
+   878→                  Set a status for every item
+   879→                  {itemStates.some((s) => s.status === "NOT_OK")
+   880→                    ? " and provide reasons for any Not OK items"
+   881→                    : ""}
+   882→                </p>
+   883→              )}
+   884→            </div>
+   885→          </div>
+   886→        )}
+   887→
+   888→        {/* ===== SUCCESS ===== */}
+   889→        {phase === "success" && submitResult && (
+   890→          <Card className="overflow-hidden border-0 p-0">
+   891→            <div className="bg-emerald-500 p-6 text-white sm:p-8">
+   892→              <div className="flex flex-col items-center text-center">
+   893→                <motion.div
+   894→                  initial={{ scale: 0.6, opacity: 0 }}
+   895→                  animate={{ scale: 1, opacity: 1 }}
+   896→                  transition={{ type: "spring", stiffness: 220, damping: 18 }}
+   897→                  className="rounded-full bg-white/20 p-3 backdrop-blur"
+   898→                >
+   899→                  <CheckCircle2 className="h-12 w-12" />
+   900→                </motion.div>
+   901→                <h2 className="mt-3 text-2xl font-bold">
+   902→                  Inspection Submitted
+   903→                </h2>
+   904→                <p className="text-sm text-white/85">
+   905→                  Report saved · Dashboard updated
+   906→                </p>
+   907→              </div>
+   908→            </div>
+   909→            <CardContent className="space-y-4 p-4 sm:p-6">
+   910→              <div className="rounded-lg border p-3">
+   911→                <p className="font-semibold">
+   912→                  {submitResult.inspection.location.name}
+   913→                </p>
+   914→                <p className="text-sm text-muted-foreground">
+   915→                  {submitResult.inspection.location.machineName} ·{" "}
+   916→                  {submitResult.inspection.location.categoryName}
+   917→                </p>
+   918→              </div>
+   919→              <div className="grid grid-cols-3 gap-2 text-center">
+   920→                <div className="rounded-lg border bg-emerald-500/5 p-3">
+   921→                  <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+   922→                    {submitResult.inspection.passedCount}
+   923→                  </p>
+   924→                  <p className="text-xs text-muted-foreground">OK</p>
+   925→                </div>
+   926→                <div className="rounded-lg border bg-red-500/5 p-3">
+   927→                  <p className="text-2xl font-bold text-red-700 dark:text-red-400">
+   928→                    {submitResult.inspection.failedCount}
+   929→                  </p>
+   930→                  <p className="text-xs text-muted-foreground">Not OK</p>
+   931→                </div>
+   932→                <div className="rounded-lg border bg-zinc-500/5 p-3">
+   933→                  <p className="text-2xl font-bold text-zinc-600 dark:text-zinc-400">
+   934→                    {submitResult.inspection.naCount}
+   935→                  </p>
+   936→                  <p className="text-xs text-muted-foreground">N/A</p>
+   937→                </div>
+   938→              </div>
+   939→              <div className="flex items-center justify-between rounded-lg bg-muted/40 p-3">
+   940→                <span className="text-sm font-medium">Score</span>
+   941→                <ScoreBadge
+   942→                  score={submitResult.inspection.score}
+   943→                  failed={submitResult.inspection.failedCount}
+   944→                />
+   945→              </div>
+   946→              <p className="text-center text-xs text-muted-foreground">
+   947→                Completed by {submitResult.inspection.user.name} ·{" "}
+   948→                {formatDateTime(submitResult.inspection.inspectionDate)}
+   949→              </p>
+   950→
+   951→              <div className="flex flex-col gap-2 sm:flex-row">
+   952→                <Button
+   953→                  variant="outline"
+   954→                  className="h-12 flex-1"
+   955→                  onClick={resetAll}
+   956→                >
+   957→                  <ScanLine className="mr-2 h-4 w-4" /> Scan Another
+   958→                </Button>
+   959→                <Button className="h-12 flex-1" onClick={resetAll}>
+   960→                  <CheckCircle2 className="mr-2 h-4 w-4" /> Done
+   961→                </Button>
+   962→              </div>
+   963→            </CardContent>
+   964→          </Card>
+   965→        )}
+   966→      </motion.div>
+   967→    </AnimatePresence>
+   968→  )
+   969→}
+   970→
