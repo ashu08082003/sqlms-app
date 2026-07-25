@@ -69,18 +69,27 @@ export function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
+/** IST (Asia/Kolkata) timezone used consistently across the app. */
+export const IST_TIMEZONE = "Asia/Kolkata"
+
 export function formatDate(d: string | Date): string {
   const date = typeof d === "string" ? new Date(d) : d
   return date.toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: IST_TIMEZONE,
   })
 }
 
 export function formatTime(d: string | Date): string {
   const date = typeof d === "string" ? new Date(d) : d
-  return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+  return date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: IST_TIMEZONE,
+  })
 }
 
 export function formatDateTime(d: string | Date): string {

@@ -87,6 +87,7 @@ export function DashboardView() {
     day: "2-digit",
     month: "long",
     year: "numeric",
+    timeZone: "Asia/Kolkata",
   })
 
   const { data, isLoading, isError } = useQuery({

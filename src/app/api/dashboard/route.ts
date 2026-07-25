@@ -101,9 +101,11 @@ export async function GET(req: Request) {
     machineName: i.location.machineName,
     categoryName: i.location.category.name,
     userName: i.user.name,
-    time: i.inspectionDate.toLocaleTimeString("en-US", {
+    time: i.inspectionDate.toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
+      timeZone: "Asia/Kolkata",
     }),
     score: i.score,
     failedCount: i.failedCount,

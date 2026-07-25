@@ -13,7 +13,8 @@ function pick<T>(arr: T[], i: number): T {
   return arr[i % arr.length]
 }
 
-export async function seedDatabase() {
+export async function seedDatabase(options: { includeDemo?: boolean } = {}) {
+  const includeDemo = options.includeDemo ?? false
   const deptNames = [
     "Production",
     "Maintenance",
@@ -48,32 +49,34 @@ export async function seedDatabase() {
     })
   }
 
-  const empDefs = [
-    { name: "Ashutosh Kumar", code: "EMP-001", dept: "Production" },
-    { name: "Rakesh Sharma", code: "EMP-002", dept: "Housekeeping" },
-    { name: "Vikram Singh", code: "EMP-003", dept: "Maintenance" },
-    { name: "Priya Patel", code: "EMP-004", dept: "Safety" },
-    { name: "Mohit Verma", code: "EMP-005", dept: "Electrical" },
-    { name: "Sneha Reddy", code: "EMP-006", dept: "Warehouse" },
-  ]
   const employees = [] as { id: string; name: string; deptId: string }[]
-  for (const e of empDefs) {
-    const email = `${e.code.toLowerCase().replace("-", ".")}@plant.com`
-    let user = await db.user.findUnique({ where: { email } })
-    const dept = departments.find((d) => d.name === e.dept)!
-    if (!user) {
-      user = await db.user.create({
-        data: {
-          email,
-          name: e.name,
-          passwordHash: hashPassword("emp123"),
-          role: "EMPLOYEE",
-          employeeCode: e.code,
-          departmentId: dept.id,
-        },
-      })
+  if (includeDemo) {
+    const empDefs = [
+      { name: "Ashutosh Kumar", code: "EMP-001", dept: "Production" },
+      { name: "Rakesh Sharma", code: "EMP-002", dept: "Housekeeping" },
+      { name: "Vikram Singh", code: "EMP-003", dept: "Maintenance" },
+      { name: "Priya Patel", code: "EMP-004", dept: "Safety" },
+      { name: "Mohit Verma", code: "EMP-005", dept: "Electrical" },
+      { name: "Sneha Reddy", code: "EMP-006", dept: "Warehouse" },
+    ]
+    for (const e of empDefs) {
+      const email = `${e.code.toLowerCase().replace("-", ".")}@plant.com`
+      let user = await db.user.findUnique({ where: { email } })
+      const dept = departments.find((d) => d.name === e.dept)!
+      if (!user) {
+        user = await db.user.create({
+          data: {
+            email,
+            name: e.name,
+            passwordHash: hashPassword("emp123"),
+            role: "EMPLOYEE",
+            employeeCode: e.code,
+            departmentId: dept.id,
+          },
+        })
+      }
+      employees.push({ id: user.id, name: user.name, deptId: dept.id })
     }
-    employees.push({ id: user.id, name: user.name, deptId: dept.id })
   }
 
   const categoryMap = new Map<string, { id: string; name: string; color: string }>()
@@ -120,24 +123,6 @@ export async function seedDatabase() {
     checklistMap.set(cl.name, { id, name: cl.name })
   }
 
-  const locDefs = [
-    { cat: "machine", name: "Slitting Line", machine: "Slitter-01", freq: "DAILY" as Frequency, cl: "Machine Daily Checklist", dept: "Production" },
-    { cat: "machine", name: "Printing Press", machine: "Press-02", freq: "DAILY" as Frequency, cl: "Machine Daily Checklist", dept: "Production" },
-    { cat: "machine", name: "Extruder Unit", machine: "Extruder-01", freq: "DAILY" as Frequency, cl: "Machine Daily Checklist", dept: "Production" },
-    { cat: "housekeeping", name: "Washroom A", machine: "Washroom-A", freq: "DAILY" as Frequency, cl: "Washroom Checklist", dept: "Housekeeping" },
-    { cat: "housekeeping", name: "Washroom B", machine: "Washroom-B", freq: "DAILY" as Frequency, cl: "Washroom Checklist", dept: "Housekeeping" },
-    { cat: "warehouse", name: "Forklift Bay 1", machine: "Forklift-FL01", freq: "DAILY" as Frequency, cl: "Forklift Inspection", dept: "Warehouse" },
-    { cat: "warehouse", name: "Forklift Bay 2", machine: "Forklift-FL02", freq: "DAILY" as Frequency, cl: "Forklift Inspection", dept: "Warehouse" },
-    { cat: "safety", name: "Fire Extinguisher Main", machine: "FE-MAIN-01", freq: "MONTHLY" as Frequency, cl: "Fire Extinguisher Check", dept: "Safety" },
-    { cat: "safety", name: "Fire Extinguisher Store", machine: "FE-STORE-02", freq: "MONTHLY" as Frequency, cl: "Fire Extinguisher Check", dept: "Safety" },
-    { cat: "electrical", name: "Main Panel Room", machine: "Panel-Main", freq: "WEEKLY" as Frequency, cl: "Electrical Panel Inspection", dept: "Electrical" },
-    { cat: "electrical", name: "Panel Shop Floor", machine: "Panel-Shop", freq: "WEEKLY" as Frequency, cl: "Electrical Panel Inspection", dept: "Electrical" },
-    { cat: "utility", name: "DG Set Room", machine: "DG-01", freq: "WEEKLY" as Frequency, cl: "DG Set Inspection", dept: "Maintenance" },
-  ]
-
-  const locationCount = await db.location.count()
-  let qrNum = locationCount + 1
-
   const locations = [] as {
     id: string
     name: string
@@ -147,39 +132,59 @@ export async function seedDatabase() {
     checklistId: string
     freq: Frequency
   }[]
-  for (const ld of locDefs) {
-    const cat = categoryMap.get(ld.cat)!
-    const cl = checklistMap.get(ld.cl)!
-    const dept = departments.find((d) => d.name === ld.dept)!
-    const qrCode = formatQrCode(qrNum)
-    qrNum++
-    let loc = await db.location.findUnique({ where: { qrCode } })
-    if (!loc) {
-      loc = await db.location.create({
-        data: {
-          qrCode,
-          categoryId: cat.id,
-          name: ld.name,
-          machineName: ld.machine,
-          departmentId: dept.id,
-          checklistId: cl.id,
-          frequency: ld.freq,
-        },
+  if (includeDemo) {
+    const locDefs = [
+      { cat: "machine", name: "Slitting Line", machine: "Slitter-01", freq: "DAILY" as Frequency, cl: "Machine Daily Checklist", dept: "Production" },
+      { cat: "machine", name: "Printing Press", machine: "Press-02", freq: "DAILY" as Frequency, cl: "Machine Daily Checklist", dept: "Production" },
+      { cat: "machine", name: "Extruder Unit", machine: "Extruder-01", freq: "DAILY" as Frequency, cl: "Machine Daily Checklist", dept: "Production" },
+      { cat: "housekeeping", name: "Washroom A", machine: "Washroom-A", freq: "DAILY" as Frequency, cl: "Washroom Checklist", dept: "Housekeeping" },
+      { cat: "housekeeping", name: "Washroom B", machine: "Washroom-B", freq: "DAILY" as Frequency, cl: "Washroom Checklist", dept: "Housekeeping" },
+      { cat: "warehouse", name: "Forklift Bay 1", machine: "Forklift-FL01", freq: "DAILY" as Frequency, cl: "Forklift Inspection", dept: "Warehouse" },
+      { cat: "warehouse", name: "Forklift Bay 2", machine: "Forklift-FL02", freq: "DAILY" as Frequency, cl: "Forklift Inspection", dept: "Warehouse" },
+      { cat: "safety", name: "Fire Extinguisher Main", machine: "FE-MAIN-01", freq: "MONTHLY" as Frequency, cl: "Fire Extinguisher Check", dept: "Safety" },
+      { cat: "safety", name: "Fire Extinguisher Store", machine: "FE-STORE-02", freq: "MONTHLY" as Frequency, cl: "Fire Extinguisher Check", dept: "Safety" },
+      { cat: "electrical", name: "Main Panel Room", machine: "Panel-Main", freq: "WEEKLY" as Frequency, cl: "Electrical Panel Inspection", dept: "Electrical" },
+      { cat: "electrical", name: "Panel Shop Floor", machine: "Panel-Shop", freq: "WEEKLY" as Frequency, cl: "Electrical Panel Inspection", dept: "Electrical" },
+      { cat: "utility", name: "DG Set Room", machine: "DG-01", freq: "WEEKLY" as Frequency, cl: "DG Set Inspection", dept: "Maintenance" },
+    ]
+
+    const locationCount = await db.location.count()
+    let qrNum = locationCount + 1
+
+    for (const ld of locDefs) {
+      const cat = categoryMap.get(ld.cat)!
+      const cl = checklistMap.get(ld.cl)!
+      const dept = departments.find((d) => d.name === ld.dept)!
+      const qrCode = formatQrCode(qrNum)
+      qrNum++
+      let loc = await db.location.findUnique({ where: { qrCode } })
+      if (!loc) {
+        loc = await db.location.create({
+          data: {
+            qrCode,
+            categoryId: cat.id,
+            name: ld.name,
+            machineName: ld.machine,
+            departmentId: dept.id,
+            checklistId: cl.id,
+            frequency: ld.freq,
+          },
+        })
+      }
+      locations.push({
+        id: loc.id,
+        name: loc.name,
+        machine: loc.machineName,
+        catId: cat.id,
+        catName: cat.name,
+        checklistId: cl.id,
+        freq: ld.freq,
       })
     }
-    locations.push({
-      id: loc.id,
-      name: loc.name,
-      machine: loc.machineName,
-      catId: cat.id,
-      catName: cat.name,
-      checklistId: cl.id,
-      freq: ld.freq,
-    })
   }
 
   const existingInspections = await db.inspection.count()
-  if (existingInspections === 0) {
+  if (includeDemo && existingInspections === 0 && locations.length > 0) {
     const now = new Date()
     const checklistItemsMap = new Map<string, string[]>()
     for (const cl of DEFAULT_CHECKLISTS) checklistItemsMap.set(cl.name, cl.items)
@@ -272,22 +277,25 @@ export async function seedDatabase() {
   })
 
   // Backfill: generate email log entries for the 6 most recent inspections
-  // (so the admin can immediately see what report + escalation emails look like).
-  const recent = await db.inspection.findMany({
-    take: 6,
-    orderBy: { inspectionDate: "desc" },
-    include: {
-      location: { include: { category: true, department: true } },
-      user: true,
-    },
-  })
-  if ((await db.emailLog.count()) === 0 && recent.length > 0) {
-    const { sendInspectionEmails } = await import("@/lib/email")
-    for (const insp of recent) {
-      try {
-        await sendInspectionEmails(insp.id)
-      } catch {
-        /* ignore backfill errors */
+  // (only when demo data was seeded, so the admin can immediately see what
+  // report + escalation emails look like).
+  if (includeDemo) {
+    const recent = await db.inspection.findMany({
+      take: 6,
+      orderBy: { inspectionDate: "desc" },
+      include: {
+        location: { include: { category: true, department: true } },
+        user: true,
+      },
+    })
+    if ((await db.emailLog.count()) === 0 && recent.length > 0) {
+      const { sendInspectionEmails } = await import("@/lib/email")
+      for (const insp of recent) {
+        try {
+          await sendInspectionEmails(insp.id)
+        } catch {
+          /* ignore backfill errors */
+        }
       }
     }
   }

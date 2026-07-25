@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer"
+import PDFDocument from "pdfkit"
 import { db } from "@/lib/db"
 import { parseResponses } from "@/lib/constants"
 
@@ -239,14 +240,182 @@ function buildEscalationEmail(d: InspectionEmailData): { subject: string; html: 
   return { subject, html: emailShell("Escalation Alert", "#dc2626", body) }
 }
 
+/* ---------------- PDF checklist report (attached to emails) ---------------- */
+function buildInspectionPdf(d: InspectionEmailData, isEscalation = false): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: "A4" })
+    const chunks: Buffer[] = []
+    doc.on("data", (c: Buffer) => chunks.push(c))
+    doc.on("end", () => resolve(Buffer.concat(chunks)))
+    doc.on("error", reject)
+
+    const pageWidth = doc.page.width - 100 // margins
+    const accent = isEscalation ? "#dc2626" : "#0d9488"
+
+    // Header bar
+    doc.rect(0, 0, doc.page.width, 70).fill(accent)
+    doc
+      .fillColor("#ffffff")
+      .fontSize(18)
+      .font("Helvetica-Bold")
+      .text("SQLMS", 50, 24)
+    doc
+      .fontSize(11)
+      .font("Helvetica")
+      .text(isEscalation ? "Escalation Report" : "Inspection Report", 50, 46)
+    doc
+      .fontSize(9)
+      .text("Smart QR Logbook Management System", doc.page.width - 250, 28, {
+        width: 200,
+        align: "right",
+      })
+
+    let y = 95
+
+    // Title
+    doc.fillColor("#0f172a").fontSize(16).font("Helvetica-Bold")
+    doc.text(
+      isEscalation ? "Escalation Required" : "Inspection Report",
+      50,
+      y
+    )
+    y += 24
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor("#64748b")
+      .text(
+        isEscalation
+          ? "An inspection reported issues that require attention."
+          : "A new inspection has been completed and logged.",
+        50,
+        y
+      )
+    y += 22
+
+    // Info table
+    const infoRows: [string, string][] = [
+      ["Location", `${d.locationName} · ${d.machineName}`],
+      ["Category", `${d.categoryName}${d.departmentName ? " · " + d.departmentName : ""}`],
+      ["Completed By", `${d.userName}${d.employeeCode ? " (" + d.employeeCode + ")" : ""}`],
+      ["Date / Time", `${d.date} · ${d.time} IST`],
+      ["Score", `${d.score.toFixed(1)}%  (${d.passed} passed / ${d.failed} failed / ${d.na} N/A)`],
+    ]
+    for (const [label, value] of infoRows) {
+      doc.font("Helvetica").fontSize(9).fillColor("#94a3b8").text(label, 50, y, { width: 110 })
+      doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f172a").text(value, 165, y, { width: pageWidth - 115 })
+      y += 18
+    }
+    y += 8
+
+    // Summary cards
+    const cardW = (pageWidth - 24) / 4
+    const cards: { label: string; value: string; color: string }[] = [
+      { label: "Passed", value: String(d.passed), color: "#dcfce7" },
+      { label: "Failed", value: String(d.failed), color: "#fee2e2" },
+      { label: "N/A", value: String(d.na), color: "#f1f5f9" },
+      { label: "Score", value: `${d.score.toFixed(1)}%`, color: accent },
+    ]
+    cards.forEach((c, i) => {
+      const x = 50 + i * (cardW + 8)
+      doc.roundedRect(x, y, cardW, 42, 6).fill(c.color)
+      doc
+        .fillColor(c.color === "#dcfce7" ? "#166534" : c.color === "#fee2e2" ? "#991b1b" : c.color === "#f1f5f9" ? "#475569" : "#ffffff")
+        .fontSize(15)
+        .font("Helvetica-Bold")
+        .text(c.value, x, y + 8, { width: cardW, align: "center" })
+        .fontSize(8)
+        .font("Helvetica")
+        .text(c.label, x, y + 28, { width: cardW, align: "center" })
+    })
+    y += 58
+
+    // Checklist responses table header
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#334155").text("Checklist Responses", 50, y)
+    y += 18
+    doc.rect(50, y, pageWidth, 20).fill("#f1f5f9")
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#64748b")
+    doc.text("ITEM", 56, y + 6, { width: 200 })
+    doc.text("STATUS", 280, y + 6, { width: 70 })
+    doc.text("REASON / REMARKS", 360, y + 6, { width: pageWidth - 320 })
+    y += 20
+
+    // Rows
+    const responses = isEscalation
+      ? d.responses.filter((r) => r.status === "NOT_OK")
+      : d.responses
+    doc.font("Helvetica").fontSize(9)
+    responses.forEach((r, idx) => {
+      if (y > doc.page.height - 120) {
+        doc.addPage()
+        y = 50
+      }
+      const rowH = 24
+      if (idx % 2 === 0) {
+        doc.rect(50, y, pageWidth, rowH).fill("#f8fafc")
+      }
+      const statusColor =
+        r.status === "OK" ? "#166534" : r.status === "NOT_OK" ? "#991b1b" : "#475569"
+      const statusBg =
+        r.status === "OK" ? "#dcfce7" : r.status === "NOT_OK" ? "#fee2e2" : "#f1f5f9"
+      const statusLabel = r.status === "OK" ? "OK" : r.status === "NOT_OK" ? "NOT OK" : "N/A"
+
+      doc.fillColor("#0f172a").font("Helvetica").fontSize(9)
+      doc.text(r.item, 56, y + 7, { width: 210 })
+      // status pill
+      doc.roundedRect(280, y + 5, 52, 14, 7).fill(statusBg)
+      doc.fillColor(statusColor).font("Helvetica-Bold").fontSize(8)
+      doc.text(statusLabel, 280, y + 8, { width: 52, align: "center" })
+      doc.fillColor("#475569").font("Helvetica").fontSize(8)
+      doc.text(r.reason || "—", 360, y + 7, { width: pageWidth - 320 })
+      y += rowH
+    })
+    y += 12
+
+    // Remarks
+    if (d.remarks) {
+      if (y > doc.page.height - 100) {
+        doc.addPage()
+        y = 50
+      }
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#94a3b8").text("REMARKS", 50, y)
+      y += 14
+      doc.rect(50, y, pageWidth, 36).fill("#f8fafc").stroke("#e2e8f0")
+      doc.font("Helvetica").fontSize(9).fillColor("#334155")
+      doc.text(d.remarks, 56, y + 8, { width: pageWidth - 12, height: 28 })
+      y += 46
+    }
+
+    // Footer
+    doc
+      .fontSize(8)
+      .fillColor("#94a3b8")
+      .text(
+        `Generated by SQLMS · Smart QR Logbook Management System · ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
+        50,
+        doc.page.height - 40,
+        { width: pageWidth, align: "center" }
+      )
+
+    doc.end()
+  })
+}
+
 /* ---------------- Sending ---------------- */
+interface EmailAttachment {
+  filename: string
+  content: Buffer
+  contentType: string
+}
+
 async function sendOne(
   config: EmailConfig,
   to: string,
   subject: string,
   html: string,
   type: "REPORT" | "ESCALATION",
-  inspectionId: string | null
+  inspectionId: string | null,
+  attachments: EmailAttachment[] = []
 ): Promise<void> {
   // SIMULATED mode: log without sending (useful when SMTP isn't configured)
   if (config.simulateOnly || !config.smtpHost || !config.fromEmail) {
@@ -282,6 +451,7 @@ async function sendOne(
       to,
       subject,
       html,
+      attachments,
     })
     await db.emailLog.create({
       data: {
@@ -335,10 +505,13 @@ export async function sendInspectionEmails(inspectionId: string): Promise<void> 
       day: "2-digit",
       month: "long",
       year: "numeric",
+      timeZone: "Asia/Kolkata",
     }),
     time: inspection.inspectionDate.toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
+      timeZone: "Asia/Kolkata",
     }),
     passed: inspection.passedCount,
     failed: inspection.failedCount,
@@ -350,17 +523,61 @@ export async function sendInspectionEmails(inspectionId: string): Promise<void> 
 
   const tasks: Promise<void>[] = []
 
-  // 1. Completion report email
-  if (config.enableReportEmail && config.reportToEmail) {
-    const { subject, html } = buildReportEmail(data)
-    tasks.push(sendOne(config, config.reportToEmail, subject, html, "REPORT", inspection.id))
+  // Generate the PDF checklist report once (used as attachment for both emails).
+  // The report PDF contains the full checklist; the escalation PDF lists only failed items.
+  let reportPdf: Buffer | null = null
+  let escalationPdf: Buffer | null = null
+  try {
+    reportPdf = await buildInspectionPdf(data, false)
+  } catch {
+    reportPdf = null
+  }
+  if (inspection.failedCount > 0) {
+    try {
+      escalationPdf = await buildInspectionPdf(data, true)
+    } catch {
+      escalationPdf = null
+    }
   }
 
-  // 2. Escalation email (only if there are NOT OK items)
+  // 1. Completion report email (+ PDF attachment of the checklist sheet)
+  if (config.enableReportEmail && config.reportToEmail) {
+    const { subject, html } = buildReportEmail(data)
+    const attachments: EmailAttachment[] = []
+    if (reportPdf) {
+      attachments.push({
+        filename: `Inspection-${data.machineName}-${data.date.replace(/\s+/g, "-")}.pdf`,
+        content: reportPdf,
+        contentType: "application/pdf",
+      })
+    }
+    tasks.push(
+      sendOne(config, config.reportToEmail, subject, html, "REPORT", inspection.id, attachments)
+    )
+  }
+
+  // 2. Escalation email (only if there are NOT OK items) (+ PDF attachment)
   if (config.enableEscalation && config.escalationToEmail && inspection.failedCount > 0) {
     const { subject, html } = buildEscalationEmail(data)
+    const attachments: EmailAttachment[] = []
+    const pdfBuf = escalationPdf || reportPdf
+    if (pdfBuf) {
+      attachments.push({
+        filename: `Escalation-${data.machineName}-${data.date.replace(/\s+/g, "-")}.pdf`,
+        content: pdfBuf,
+        contentType: "application/pdf",
+      })
+    }
     tasks.push(
-      sendOne(config, config.escalationToEmail, subject, html, "ESCALATION", inspection.id)
+      sendOne(
+        config,
+        config.escalationToEmail,
+        subject,
+        html,
+        "ESCALATION",
+        inspection.id,
+        attachments
+      )
     )
   }
 

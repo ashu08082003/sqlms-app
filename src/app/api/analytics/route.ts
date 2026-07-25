@@ -75,7 +75,12 @@ export async function GET(req: Request) {
     const m = Math.round((avg - h) * 60)
     const date = new Date()
     date.setHours(h, m, 0, 0)
-    avgCompletionTime = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+    avgCompletionTime = date.toLocaleTimeString("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: "Asia/Kolkata",
+    })
   }
 
   // Average score

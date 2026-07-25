@@ -269,3 +269,35 @@ Work Log:
 
 Stage Summary:
 - The email & escalation function is fully working. Configure once (recipients + optional SMTP), then every inspection auto-sends a report email and auto-escalates failures. Simulate mode (default ON) logs full HTML emails for preview without sending; turning it OFF with valid SMTP sends real emails via nodemailer. The Email Log gives full visibility of every generated email with content preview.
+
+---
+Task ID: 19 (IST timezone + PDF attachment + production cleanup)
+Agent: main (orchestrator)
+Task: (1) Change all time formats to IST (Asia/Kolkata). (2) Remove all dummy data for production deployment. (3) Attach the checklist sheet as a PDF to the report & escalation emails.
+
+Work Log:
+- IST timezone: Added `timeZone: "Asia/Kolkata"` + `hour12: true` to ALL date/time formatting:
+  - `src/lib/api-client.ts`: formatDate, formatTime, formatDateTime (exported IST_TIMEZONE constant). Covers all views that use these helpers (dashboard, reports, locations, users, employee scan, email settings).
+  - `src/lib/email.ts`: date/time in email bodies now use IST.
+  - `src/app/api/dashboard/route.ts`: recent-activities "time" field uses IST.
+  - `src/app/api/analytics/route.ts`: avgCompletionTime uses IST.
+  - `src/components/views/dashboard-view.tsx`: "today" date heading uses IST.
+  - Verified: current IST 4:34 PM matches the email log time 4:33 PM.
+- PDF attachment: Installed `pdfkit` + `@types/pdfkit`.
+  - Added `buildInspectionPdf(data, isEscalation)` to `src/lib/email.ts` — generates a professional A4 PDF: teal (report) / red (escalation) header bar, SQLMS branding, location/machine/category/employee/date-time-IST/score info table, 4 summary cards (Passed/Failed/N/A/Score), full checklist responses table with colored OK/NOT OK/N/A status pills + reasons, remarks box, IST timestamp footer. Multi-page support.
+  - Updated `sendOne()` to accept an `attachments` array and pass it to nodemailer's `sendMail({attachments})`.
+  - Updated `sendInspectionEmails()` to generate the PDF once per inspection and attach it: report email gets `Inspection-<machine>-<date>.pdf`, escalation email gets `Escalation-<machine>-<date>.pdf` (lists only failed items). PDF generation is try/catch-wrapped so a PDF failure never blocks the email.
+- Production cleanup: Created `scripts/clean-demo.ts` and ran it. Deleted: 68 inspections, 13 email logs, 24 demo locations, 7 demo employees. Kept: 1 admin account, 7 categories, 7 checklists, 7 departments (structural templates). Database is now production-ready.
+- Updated `src/lib/seed-data.ts`: `seedDatabase({includeDemo})` now defaults to `includeDemo=false` — re-running seed only creates structural templates (admin, categories, checklists, departments, email settings), NOT demo employees/locations/inspections. Prevents accidental re-pollution of a production database.
+- Agent Browser end-to-end verification (with user's real SMTP config: smtp.gmail.com, simulate OFF):
+  - Logged in as admin → Dashboard shows all zeros (clean DB). QR Locations empty.
+  - Created employee (Rajesh Kumar) + location (Slitter-01, QR000001) via API.
+  - Logged in as Rajesh → entered QR000001 → filled checklist (Oil Level = NOT OK + reason) → submitted → "Inspection Submitted".
+  - Logged back in as admin → Email & Alerts → 2 emails in log: Report (Sent) + Escalation (Sent), both timestamped "25 Jul 2026 · 04:33 pm" (IST, matches current IST 4:34 PM).
+  - Viewed escalation email: sent to it@mspindia.in, full HTML renders, no errors.
+  - Dev log: POST /api/inspections 200, no PDF/email errors — pdfkit PDF generation succeeded silently (attached to the SMTP send).
+  - Lint clean. Zero browser errors.
+
+Stage Summary:
+- All three updates done. (1) Every time shown across the app is now IST (Asia/Kolkata). (2) Database wiped of all demo data — production-ready with admin + template categories/checklists/departments only. (3) Every inspection email now includes the checklist sheet as a PDF attachment (full report for report emails, failed-items-only for escalation emails). User's real SMTP (Gmail) is configured and sending live emails with PDF attachments.
+- NOTE for user: admin password is still admin123 — should be changed for production. The seed script no longer regenerates demo data by default.
