@@ -3,8 +3,8 @@ import { json, error, requireAuth } from "@/lib/api-helpers"
 import { parseItems } from "@/lib/constants"
 
 // Resolve a QR code -> location + checklist (for employee scan flow)
-export async function GET(_req: Request, { params }: { params: Promise<{ code: string }> }) {
-  const auth = await requireAuth()
+export async function GET(req: Request, { params }: { params: Promise<{ code: string }> }) {
+  const auth = await requireAuth(req)
   if (!auth) return json({ error: "Unauthorized" }, 401)
   const { code } = await params
   const normalized = String(code).trim().toUpperCase()

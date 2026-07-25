@@ -6,17 +6,52 @@ export class ApiError extends Error {
   }
 }
 
+/* ---------------- Session token storage (localStorage) ---------------- */
+const TOKEN_KEY = "sqlms_token"
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setToken(token: string): void {
+  try {
+    localStorage.setItem(TOKEN_KEY, token)
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearToken(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function apiFetch<T = unknown>(
   url: string,
   init?: RequestInit
 ): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  })
+  const token = getToken()
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  if (init?.headers) {
+    const existing = init.headers as Record<string, string>
+    for (const k of Object.keys(existing)) {
+      headers[k] = existing[k]
+    }
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+
+  const res = await fetch(url, { ...init, headers })
   const text = await res.text()
   const data = text ? JSON.parse(text) : null
   if (!res.ok) {

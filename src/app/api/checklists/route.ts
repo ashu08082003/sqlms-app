@@ -24,7 +24,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAdmin()
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const body = await req.json().catch(() => ({}))
   const { name, categoryId, frequency, description, items } = body as {

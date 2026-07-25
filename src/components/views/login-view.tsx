@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { apiFetch } from "@/lib/api-client"
+import { apiFetch, setToken } from "@/lib/api-client"
 import type { SafeUser } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -24,10 +24,14 @@ export function LoginView({ onLogin }: LoginViewProps) {
     e.preventDefault()
     setLoading(true)
     try {
-      const res = await apiFetch<{ user: SafeUser }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      })
+      const res = await apiFetch<{ user: SafeUser; token: string }>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        }
+      )
+      setToken(res.token)
       toast.success(`Welcome, ${res.user.name}`)
       onLogin(res.user)
     } catch (err) {

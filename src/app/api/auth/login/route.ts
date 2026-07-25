@@ -34,13 +34,13 @@ export async function POST(req: Request) {
   if (!user.active) return error("Account is deactivated", 403)
   if (!verifyPassword(password, user.passwordHash)) return error("Invalid credentials", 401)
 
-  await setSession(user.id)
-  return json({ user: toSafeUser(user) })
+  const token = await setSession(user.id)
+  return json({ user: toSafeUser(user), token })
 }
 
 // Get current session
-export async function GET() {
-  const user = await getSessionUser()
+export async function GET(req: Request) {
+  const user = await getSessionUser(req)
   if (!user) return json({ user: null })
   return json({ user: toSafeUser(user) })
 }

@@ -2,8 +2,8 @@ import { db } from "@/lib/db"
 import { hashPassword } from "@/lib/auth"
 import { json, error, requireAdmin } from "@/lib/api-helpers"
 
-export async function GET() {
-  const auth = await requireAdmin()
+export async function GET(req: Request) {
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const users = await db.user.findMany({
     orderBy: { name: "asc" },
@@ -27,7 +27,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAdmin()
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const body = await req.json().catch(() => ({}))
   const { name, email, password, role, employeeCode, phone, departmentId } = body as {

@@ -2,8 +2,8 @@ import { db } from "@/lib/db"
 import { json, error, requireAuth } from "@/lib/api-helpers"
 import { parseResponses } from "@/lib/constants"
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAuth()
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth(req)
   if (!auth) return json({ error: "Unauthorized" }, 401)
   const { id } = await params
   const inspection = await db.inspection.findUnique({

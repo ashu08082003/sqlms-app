@@ -21,7 +21,7 @@ export function verifyPassword(password: string, stored: string): boolean {
   return timingSafeEqual(hashBuf, testBuf)
 }
 
-/* ---------------- Signed session cookie ---------------- */
+/* ---------------- Signed token (used for both cookie & bearer) ---------------- */
 function sign(payload: string): string {
   const sig = createHmac("sha256", SECRET).update(payload).digest("hex")
   return `${payload}.${sig}`
@@ -42,7 +42,12 @@ function verify(token: string): string | null {
   return null
 }
 
-export async function setSession(userId: string) {
+/** Create a signed session token for a user id. */
+export function createSessionToken(userId: string): string {
+  return sign(userId)
+}
+
+export async function setSession(userId: string): Promise<string> {
   const token = sign(userId)
   const store = await cookies()
   store.set(SESSION_COOKIE, token, {
@@ -51,6 +56,7 @@ export async function setSession(userId: string) {
     path: "/",
     maxAge: 60 * 60 * 24 * 7, // 7 days
   })
+  return token
 }
 
 export async function clearSession() {
@@ -58,10 +64,32 @@ export async function clearSession() {
   store.delete(SESSION_COOKIE)
 }
 
-export async function getSessionUser() {
+/**
+ * Resolve the current session user.
+ *
+ * Reads the session token from EITHER:
+ *   1. the `Authorization: Bearer <token>` header (primary — works through
+ *      gateways / cross-site iframes where SameSite cookies are blocked), OR
+ *   2. the `sqlms_session` httpOnly cookie (fallback for first-party contexts).
+ */
+export async function getSessionUser(req?: Request) {
   try {
-    const store = await cookies()
-    const token = store.get(SESSION_COOKIE)?.value
+    let token: string | undefined
+
+    // 1. Bearer token from Authorization header
+    if (req) {
+      const auth = req.headers.get("authorization") || req.headers.get("Authorization")
+      if (auth && auth.toLowerCase().startsWith("bearer ")) {
+        token = auth.slice(7).trim()
+      }
+    }
+
+    // 2. Fall back to cookie
+    if (!token) {
+      const store = await cookies()
+      token = store.get(SESSION_COOKIE)?.value
+    }
+
     if (!token) return null
     const userId = verify(token)
     if (!userId) return null

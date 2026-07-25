@@ -3,7 +3,7 @@ import { hashPassword } from "@/lib/auth"
 import { json, error, requireAdmin } from "@/lib/api-helpers"
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAdmin()
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const { id } = await params
   const body = await req.json().catch(() => ({}))
@@ -30,8 +30,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   return json({ user: { id: user.id } })
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAdmin()
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const { id } = await params
   // Prevent deleting the last admin

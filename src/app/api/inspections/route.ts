@@ -4,7 +4,7 @@ import { stringifyResponses } from "@/lib/constants"
 import type { ItemStatus } from "@/lib/types"
 
 export async function GET(req: Request) {
-  const auth = await requireAuth()
+  const auth = await requireAuth(req)
   if (!auth) return json({ error: "Unauthorized" }, 401)
   const url = new URL(req.url)
   const categoryId = url.searchParams.get("categoryId")
@@ -78,7 +78,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAuth()
+  const auth = await requireAuth(req)
   if (!auth) return json({ error: "Unauthorized" }, 401)
 
   const body = await req.json().catch(() => ({}))

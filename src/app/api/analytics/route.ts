@@ -8,8 +8,8 @@ function startOfDay(d: Date): Date {
   return x
 }
 
-export async function GET() {
-  const auth = await requireAuth()
+export async function GET(req: Request) {
+  const auth = await requireAuth(req)
   if (!auth) return json({ error: "Unauthorized" }, 401)
   if (auth.safe.role !== "ADMIN") return json({ error: "Admin access required" }, 403)
 

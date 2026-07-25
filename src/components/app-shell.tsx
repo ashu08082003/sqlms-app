@@ -37,7 +37,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
-import { apiFetch } from "@/lib/api-client"
+import { apiFetch, clearToken } from "@/lib/api-client"
 import { useAppStore, type AdminSection } from "@/store/app-store"
 import { DashboardView } from "@/components/views/dashboard-view"
 import { LocationsView } from "@/components/views/locations-view"
@@ -151,6 +151,7 @@ function UserMenu() {
     } catch {
       /* ignore */
     }
+    clearToken()
     setUser(null)
     toast.success("Signed out")
   }

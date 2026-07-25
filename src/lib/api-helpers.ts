@@ -27,17 +27,17 @@ export function toSafeUser(
   }
 }
 
-export async function requireAuth(): Promise<{
+export async function requireAuth(req?: Request): Promise<{
   user: NonNullable<Awaited<ReturnType<typeof getSessionUser>>>
   safe: SafeUser
 } | null> {
-  const user = await getSessionUser()
+  const user = await getSessionUser(req)
   if (!user) return null
   return { user, safe: toSafeUser(user)! }
 }
 
-export async function requireAdmin() {
-  const auth = await requireAuth()
+export async function requireAdmin(req?: Request) {
+  const auth = await requireAuth(req)
   if (!auth) return null
   if (auth.safe.role !== "ADMIN") return null
   return auth

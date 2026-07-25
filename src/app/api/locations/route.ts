@@ -2,8 +2,8 @@ import { db } from "@/lib/db"
 import { json, error, requireAdmin, requireAuth } from "@/lib/api-helpers"
 import { formatQrCode } from "@/lib/constants"
 
-export async function GET() {
-  const auth = await requireAuth()
+export async function GET(req: Request) {
+  const auth = await requireAuth(req)
   if (!auth) return json({ error: "Unauthorized" }, 401)
   const locs = await db.location.findMany({
     orderBy: { qrCode: "asc" },
@@ -37,7 +37,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAdmin()
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const body = await req.json().catch(() => ({}))
   const {

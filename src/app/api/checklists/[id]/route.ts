@@ -3,7 +3,7 @@ import { json, error, requireAdmin } from "@/lib/api-helpers"
 import { stringifyItems } from "@/lib/constants"
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAdmin()
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const { id } = await params
   const body = await req.json().catch(() => ({}))
@@ -29,8 +29,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   return json({ checklist: cl })
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAdmin()
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const { id } = await params
   await db.checklist.delete({ where: { id } })

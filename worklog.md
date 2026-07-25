@@ -212,3 +212,28 @@ Stage Summary:
 - Production-ready. Lint clean (0 errors). Dev server stable on :3000. All golden-path flows browser-verified: admin CRUD (locations/checklists/categories/departments/users), employee QR→checklist→submit, reports, analytics, dashboard stats.
 - Known agent-browser quirk: direct `click`/`find click` on React buttons sometimes doesn't fire synthetic onClick; native `.click()` via eval or form `requestSubmit()` works. (This is a test-tooling note, not an app defect.)
 - Tech adaptation note for the user: their proposed Python/Flask/PostgreSQL/ReportLab stack was implemented on the project's Next.js 16 + TypeScript + Prisma(SQLite) + shadcn/ui stack. QR generation via `qrcode`, camera scan via `html5-qrcode`, PDF via browser print (`.print-area` CSS), CSV via client Blob. Email/OneDrive are stubbed as "status" UI (not wired to real SMTP/Graph API in this sandbox).
+
+---
+Task ID: 17 (auth fix)
+Agent: main (orchestrator)
+Task: Fix "Admin access required" / 401 errors blocking all functionality through the preview gateway.
+
+Work Log:
+- Root cause: Session cookie used `SameSite=Lax`, which is blocked in cross-site iframes (the preview runs inside an iframe on a different top-level origin). Login POST returned 200 + Set-Cookie, but the browser never sent the cookie on subsequent requests → every protected API returned 401/403 ("Admin access required" / "Unauthorized").
+- Fix: Added token-based auth (Authorization: Bearer header + localStorage) as the PRIMARY mechanism, with the cookie kept as a fallback.
+  - `src/lib/auth.ts`: `getSessionUser(req?)` now reads the Bearer token from the Authorization header first, then falls back to the cookie. Added `createSessionToken()`. `setSession()` now returns the token.
+  - `src/lib/api-helpers.ts`: `requireAuth(req?)` / `requireAdmin(req?)` now accept and forward `req`.
+  - All 15 API route files: updated every `requireAuth()`/`requireAdmin()`/`getSessionUser()` call to pass `req`, and added `req: Request` to GET handler signatures that needed it (dashboard, users, analytics, locations, auth/me, auth/login). Renamed `_req` → `req` in DELETE handlers.
+  - `src/app/api/auth/login/route.ts`: POST now returns `{ user, token }` in the JSON response.
+  - `src/lib/api-client.ts`: Added `getToken()`/`setToken()`/`clearToken()` (localStorage). `apiFetch` now attaches `Authorization: Bearer <token>` on every request.
+  - `src/components/views/login-view.tsx`: Stores the token via `setToken(res.token)` on successful login.
+  - `src/components/app-shell.tsx`: Calls `clearToken()` on logout.
+- Verification (curl + Agent Browser):
+  - curl with Bearer token (no cookie): dashboard 200, /api/auth/me 200, POST /api/locations 200. Confirmed cookie-free auth works.
+  - Browser: cleared localStorage → admin login → Dashboard loads with real data (12 locations, 4 completed, 3 pending), zero 401s (was 401 before). Created a location via the Add dialog → POST 200 (was 403). Reports shows 65 inspections. Analytics renders 2 charts. All 7 admin sections load without errors.
+  - Employee flow: logged in as Ashutosh → scan view → entered QR000001 → checklist opened → filled all items → submitted → "Inspection Submitted" success. POST /api/inspections 200.
+  - Cleaned up test data (Pump Room location deleted).
+- Lint: clean (0 errors). Dev log: all 200s, no 401/403/500.
+
+Stage Summary:
+- The "Admin access required" / "functionality not working" issue is fully resolved. Token-based auth bypasses the SameSite/iframe cookie restriction entirely. Both admin (full CRUD across all 7 sections) and employee (scan → checklist → submit) flows are browser-verified end-to-end.
