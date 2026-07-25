@@ -237,3 +237,35 @@ Work Log:
 
 Stage Summary:
 - The "Admin access required" / "functionality not working" issue is fully resolved. Token-based auth bypasses the SameSite/iframe cookie restriction entirely. Both admin (full CRUD across all 7 sections) and employee (scan → checklist → submit) flows are browser-verified end-to-end.
+
+---
+Task ID: 18 (email & escalation feature)
+Agent: main (orchestrator)
+Task: Add email report + auto-escalation function. Admin configures email recipients/SMTP ONCE; every submitted inspection auto-sends a report email, and failures auto-escalate to a separate email.
+
+Work Log:
+- Installed `nodemailer` + `@types/nodemailer`.
+- Added Prisma models: `EmailSetting` (singleton config: reportToEmail, escalationToEmail, SMTP host/port/user/pass, fromEmail, fromName, enableReportEmail, enableEscalation, simulateOnly) and `EmailLog` (to, subject, bodyHtml, status SENT|FAILED|SIMULATED, type REPORT|ESCALATION, inspectionId, error, createdAt). Pushed DB.
+- Built `src/lib/email.ts`:
+  - `getEmailConfig()` / `updateEmailConfig(patch)` — singleton settings CRUD.
+  - `buildReportEmail()` — professional HTML report (location/machine/category/employee/date/time, Passed/Failed/NA/Score stat cards, full checklist responses table with OK/NOT OK/N/A badges + reasons, remarks). Teal accent.
+  - `buildEscalationEmail()` — red-accented HTML escalation listing only the failed items with reasons, score, inspector, "review and initiate corrective action" call-to-action.
+  - `sendOne()` — sends via nodemailer if SMTP configured & simulateOnly OFF; otherwise logs as SIMULATED with full HTML. All outcomes (SENT/FAILED/SIMULATED) logged to EmailLog.
+  - `sendInspectionEmails(inspectionId)` — orchestrator: sends report email to reportToEmail (if enabled) AND escalation email to escalationToEmail (if enabled + failedCount>0). Idempotent, error-swallowed.
+  - `sendTestEmail(to)` — for the settings page "Send test" button.
+- Wired `sendInspectionEmails()` into POST `/api/inspections` (fire-and-forget after insert; never blocks/breaks submission).
+- API routes: GET/PUT/POST `/api/settings/email` (get/update config, send test), GET `/api/emails` (list with type filter), GET `/api/emails/[id]` (full detail incl. bodyHtml).
+- Seeded default settings (reportToEmail=reports@plant.com, escalationToEmail=maintenance@plant.com, simulateOnly=true) + backfilled 6 recent inspections' emails into the log.
+- Built `src/components/views/email-settings-view.tsx`: tabbed layout with Recipients & Rules card (report email, escalation email, auto-send/auto-escalate toggles), SMTP Configuration card (from name/email, host, port, user, password, simulate toggle with explanatory banner), Send Test Email card, and Email Log table (filterable by type, status badges, view dialog rendering the full HTML email preview). Password field shows "(saved)" when set and doesn't wipe on empty save.
+- Added "Email & Alerts" nav item (Mail icon) to admin sidebar + AdminSection type + content router.
+- Updated employee success screen text to "Report saved · Dashboard updated · Email sent".
+- Agent Browser end-to-end verification:
+  - Admin → Email & Alerts: settings form loads with pre-filled recipients, 7 backfilled emails in log.
+  - Viewed a report email → full HTML report renders in dialog (6 styled tables).
+  - Logged in as employee Ashutosh → submitted inspection for QR000001 (Slitting Line) with Oil Level marked NOT OK + reason "Test escalation: oil leak detected" → success.
+  - Logged back in as admin → Email & Alerts now shows 9 emails (was 7): the 2 new ones are a Report email (to reports@plant.com) AND an Escalation email (to maintenance@plant.com) — both auto-generated from the single submission.
+  - Viewed the escalation email: subject "⚠ Escalation: 1 Issue(s) — Slitter-01", correctly lists "1. Oil Level" failed item, score 85.7%, inspector Ashutosh Kumar.
+  - Zero console/page errors. Lint clean.
+
+Stage Summary:
+- The email & escalation function is fully working. Configure once (recipients + optional SMTP), then every inspection auto-sends a report email and auto-escalates failures. Simulate mode (default ON) logs full HTML emails for preview without sending; turning it OFF with valid SMTP sends real emails via nodemailer. The Email Log gives full visibility of every generated email with content preview.

@@ -107,4 +107,41 @@ model Inspection {
   score        Float     @default(0) // percentage of OK among OK+NOT_OK
   status       String    @default("COMPLETED") // COMPLETED | OVERDUE_PENDING
   createdAt    DateTime  @default(now())
+
+  emails EmailLog[]
+}
+
+// Singleton-style email configuration (one row, key = "global")
+model EmailSetting {
+  id                String   @id @default(cuid())
+  key               String   @unique @default("global")
+  // Recipients
+  reportToEmail     String   @default("") // where completed reports go
+  escalationToEmail String   @default("") // where NOT OK escalations go
+  // SMTP
+  smtpHost          String   @default("")
+  smtpPort          Int      @default(587)
+  smtpUser          String   @default("")
+  smtpPass          String   @default("")
+  fromEmail         String   @default("")
+  fromName          String   @default("SQLMS Logbook")
+  // Toggles
+  enableReportEmail   Boolean @default(true)
+  enableEscalation    Boolean @default(true)
+  // If true, emails are logged as SIMULATED without attempting SMTP send
+  simulateOnly      Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+}
+
+model EmailLog {
+  id            String      @id @default(cuid())
+  to            String
+  subject       String
+  bodyHtml      String
+  status        String      @default("SIMULATED") // SENT | FAILED | SIMULATED
+  type          String      @default("REPORT") // REPORT | ESCALATION
+  inspectionId  String?
+  inspection    Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  error         String?
+  createdAt     DateTime    @default(now())
 }

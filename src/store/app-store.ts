@@ -11,6 +11,7 @@ export type AdminSection =
   | "users"
   | "inspections"
   | "analytics"
+  | "email"
 
 interface AppState {
   user: SafeUser | null

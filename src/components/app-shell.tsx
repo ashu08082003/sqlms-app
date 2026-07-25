@@ -10,6 +10,7 @@ import {
   Users,
   ClipboardList,
   BarChart3,
+  Mail,
   LogOut,
   Sun,
   Moon,
@@ -46,6 +47,7 @@ import { CategoriesView } from "@/components/views/categories-view"
 import { UsersView } from "@/components/views/users-view"
 import { InspectionsView } from "@/components/views/inspections-view"
 import { AnalyticsView } from "@/components/views/analytics-view"
+import { EmailSettingsView } from "@/components/views/email-settings-view"
 import { EmployeeScanView } from "@/components/views/employee-scan-view"
 import { toast } from "sonner"
 
@@ -57,6 +59,7 @@ const NAV: { section: AdminSection; label: string; icon: typeof LayoutDashboard 
   { section: "users", label: "Users", icon: Users },
   { section: "inspections", label: "Reports", icon: ClipboardList },
   { section: "analytics", label: "Analytics", icon: BarChart3 },
+  { section: "email", label: "Email & Alerts", icon: Mail },
 ]
 
 function initials(name: string) {
@@ -272,6 +275,7 @@ export function AppShell({ initialQr }: { initialQr: string | null }) {
               {section === "users" && <UsersView />}
               {section === "inspections" && <InspectionsView />}
               {section === "analytics" && <AnalyticsView />}
+              {section === "email" && <EmailSettingsView />}
             </div>
           ) : (
             <div className="mx-auto max-w-3xl px-4 py-6 lg:px-8">

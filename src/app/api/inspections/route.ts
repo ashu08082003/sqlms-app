@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { json, error, requireAuth } from "@/lib/api-helpers"
 import { stringifyResponses } from "@/lib/constants"
+import { sendInspectionEmails } from "@/lib/email"
 import type { ItemStatus } from "@/lib/types"
 
 export async function GET(req: Request) {
@@ -125,6 +126,10 @@ export async function POST(req: Request) {
       checklist: true,
     },
   })
+
+  // Auto-send report + escalation emails (runs after the response is returned).
+  // Errors are swallowed so a mail failure never breaks inspection submission.
+  sendInspectionEmails(inspection.id).catch(() => {})
 
   return json({
     inspection: {

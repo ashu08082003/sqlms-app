@@ -902,7 +902,7 @@ export function EmployeeScanView({ initialQr }: { initialQr: string | null }) {
                   Inspection Submitted
                 </h2>
                 <p className="text-sm text-white/85">
-                  Report saved · Dashboard updated
+                  Report saved · Dashboard updated · Email sent
                 </p>
               </div>
             </div>

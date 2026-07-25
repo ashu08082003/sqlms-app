@@ -256,6 +256,42 @@ export async function seedDatabase() {
     }
   }
 
+  // Default email settings (simulate-only by default; admin can switch to live SMTP)
+  await db.emailSetting.upsert({
+    where: { key: "global" },
+    update: {},
+    create: {
+      key: "global",
+      reportToEmail: "reports@plant.com",
+      escalationToEmail: "maintenance@plant.com",
+      fromName: "SQLMS Logbook",
+      enableReportEmail: true,
+      enableEscalation: true,
+      simulateOnly: true,
+    },
+  })
+
+  // Backfill: generate email log entries for the 6 most recent inspections
+  // (so the admin can immediately see what report + escalation emails look like).
+  const recent = await db.inspection.findMany({
+    take: 6,
+    orderBy: { inspectionDate: "desc" },
+    include: {
+      location: { include: { category: true, department: true } },
+      user: true,
+    },
+  })
+  if ((await db.emailLog.count()) === 0 && recent.length > 0) {
+    const { sendInspectionEmails } = await import("@/lib/email")
+    for (const insp of recent) {
+      try {
+        await sendInspectionEmails(insp.id)
+      } catch {
+        /* ignore backfill errors */
+      }
+    }
+  }
+
   return {
     ok: true,
     message: "Seed complete",
