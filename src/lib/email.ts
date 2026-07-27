@@ -74,7 +74,7 @@ export async function updateEmailConfig(patch: Partial<EmailConfig>): Promise<Em
 }
 
 /* ---------------- HTML email builder ---------------- */
-interface InspectionEmailData {
+export interface InspectionEmailData {
   inspectionId: string
   locationName: string
   machineName: string
@@ -252,14 +252,71 @@ const CONTENT_W = PDF_W - MARGIN * 2
 
 function hexToRgb(hex: string): ReturnType<typeof rgb> {
   const h = hex.replace("#", "")
-  const r = parseInt(h.slice(0, 2), 16) / 255
-  const g = parseInt(h.slice(2, 4), 16) / 255
-  const b = parseInt(h.slice(4, 6), 16) / 255
-  return rgb(r, g, b)
+  return rgb(
+    parseInt(h.slice(0, 2), 16) / 255,
+    parseInt(h.slice(2, 4), 16) / 255,
+    parseInt(h.slice(4, 6), 16) / 255
+  )
+}
+
+/**
+ * Sanitize text for pdf-lib's StandardFonts (WinAnsi encoding).
+ * Replaces common Unicode punctuation/symbols with ASCII equivalents and
+ * strips any remaining non-encodable characters so drawText never throws.
+ */
+function sanitizeText(input: string): string {
+  if (!input) return ""
+  const replacements: Record<string, string> = {
+    "\u2014": "-", // em dash
+    "\u2013": "-", // en dash
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u2022": "*",
+    "\u00b7": "*",
+    "\u2026": "...",
+    "\u20b9": "Rs.",
+    "\u2192": "->",
+    "\u2190": "<-",
+    "\u2713": "OK",
+    "\u2717": "X",
+    "\u26a0": "!",
+    "\u00d7": "x",
+    "\u00f7": "/",
+    "\u00b0": " deg",
+    "\u00b1": "+/-",
+    "\u2265": ">=",
+    "\u2264": "<=",
+    "\u2122": "(TM)",
+    "\u00a9": "(c)",
+    "\u00ae": "(R)",
+  }
+  let out = ""
+  for (const ch of input) {
+    const code = ch.codePointAt(0)!
+    if (code < 128) {
+      out += ch
+    } else if (replacements[ch]) {
+      out += replacements[ch]
+    } else if (code >= 0xa0 && code <= 0xff) {
+      // Latin-1 supplement (encodable in WinAnsi)
+      out += ch
+    } else {
+      // Any other non-encodable character -> space (keeps layout clean)
+      out += " "
+    }
+  }
+  return out
 }
 
 // Wrap text to a max width using the given font/size; returns array of lines.
-function wrapText(text: string, font: { widthOfTextAtSize: (t: string, s: number) => number }, size: number, maxWidth: number): string[] {
+function wrapText(
+  text: string,
+  font: { widthOfTextAtSize: (t: string, s: number) => number },
+  size: number,
+  maxWidth: number
+): string[] {
   const words = String(text || "").split(/\s+/)
   const lines: string[] = []
   let line = ""
@@ -269,7 +326,6 @@ function wrapText(text: string, font: { widthOfTextAtSize: (t: string, s: number
       line = test
     } else {
       if (line) lines.push(line)
-      // If a single word is too long, hard-break it
       if (font.widthOfTextAtSize(word, size) > maxWidth) {
         let chunk = ""
         for (const ch of word) {
@@ -290,7 +346,24 @@ function wrapText(text: string, font: { widthOfTextAtSize: (t: string, s: number
   return lines.length ? lines : [""]
 }
 
-async function buildInspectionPdf(d: InspectionEmailData, isEscalation = false): Promise<Buffer> {
+// Safe drawText wrapper — sanitizes text and never throws.
+// pdf-lib API: page.drawText(text: string, options: { x, y, size, font, color })
+function drawTextSafe(
+  page: { drawText: (text: string, options: { x: number; y: number; size: number; font: unknown; color: unknown }) => void },
+  text: string,
+  opts: { x: number; y: number; size: number; font: unknown; color: unknown }
+) {
+  try {
+    page.drawText(sanitizeText(text), opts)
+  } catch {
+    /* skip unrenderable text */
+  }
+}
+
+async function buildInspectionPdf(
+  d: InspectionEmailData,
+  isEscalation = false
+): Promise<Buffer> {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
@@ -298,183 +371,291 @@ async function buildInspectionPdf(d: InspectionEmailData, isEscalation = false):
   const accentHex = isEscalation ? "#dc2626" : "#0d9488"
   const accent = hexToRgb(accentHex)
   const ink = hexToRgb("#0f172a")
-  const muted = hexToRgb("#64748b")
+  const muted = hexToRgb("#475569")
   const faint = hexToRgb("#94a3b8")
   const slateBg = hexToRgb("#f1f5f9")
   const rowBg = hexToRgb("#f8fafc")
   const borderClr = hexToRgb("#e2e8f0")
+  const white = rgb(1, 1, 1)
 
-  const page = doc.addPage([PDF_W, PDF_H])
-  // yFromTop helper: pdf-lib y origin is bottom-left
+  let page = doc.addPage([PDF_W, PDF_H])
   const yt = (yFromTop: number) => PDF_H - yFromTop
 
-  // ---- Header bar ----
-  page.drawRectangle({ x: 0, y: PDF_H - 70, width: PDF_W, height: 70, color: accent })
-  page.drawText("SQLMS", { x: MARGIN, y: yt(44), size: 18, font: bold, color: rgb(1, 1, 1) })
-  page.drawText(isEscalation ? "Escalation Report" : "Inspection Report", {
-    x: MARGIN,
-    y: yt(56),
-    size: 10,
-    font,
-    color: rgb(0.9, 0.9, 0.9),
-  })
-
-  let y = 95
-
-  // ---- Title ----
-  page.drawText(isEscalation ? "Escalation Required" : "Inspection Report", {
-    x: MARGIN,
-    y: yt(y),
-    size: 16,
-    font: bold,
-    color: ink,
-  })
-  y += 22
-  const subtitle = isEscalation
-    ? "An inspection reported issues that require attention."
-    : "A new inspection has been completed and logged."
-  page.drawText(subtitle, { x: MARGIN, y: yt(y), size: 9, font, color: muted })
-  y += 20
-
-  // ---- Info rows ----
-  const infoRows: [string, string][] = [
-    ["Location", `${d.locationName}  ·  ${d.machineName}`],
-    ["Category", `${d.categoryName}${d.departmentName ? "  ·  " + d.departmentName : ""}`],
-    ["Completed By", `${d.userName}${d.employeeCode ? " (" + d.employeeCode + ")" : ""}`],
-    ["Date / Time", `${d.date}  ·  ${d.time} IST`],
-    ["Score", `${d.score.toFixed(1)}%   (${d.passed} passed / ${d.failed} failed / ${d.na} N/A)`],
-  ]
-  for (const [label, value] of infoRows) {
-    page.drawText(label, { x: MARGIN, y: yt(y), size: 8, font, color: faint })
-    // wrap value if too long
-    const valLines = wrapText(value, font, 10, CONTENT_W - 115)
-    valLines.forEach((ln, i) => {
-      page.drawText(ln, { x: MARGIN + 115, y: yt(y + i * 13), size: 10, font: bold, color: ink })
-    })
-    y += Math.max(16, valLines.length * 13 + 3)
-  }
-  y += 8
-
-  // ---- Summary cards ----
-  const cardW = (CONTENT_W - 24) / 4
-  const cards: { label: string; value: string; bg: string; fg: string }[] = [
-    { label: "Passed", value: String(d.passed), bg: "#dcfce7", fg: "#166534" },
-    { label: "Failed", value: String(d.failed), bg: "#fee2e2", fg: "#991b1b" },
-    { label: "N/A", value: String(d.na), bg: "#f1f5f9", fg: "#475569" },
-    { label: "Score", value: `${d.score.toFixed(1)}%`, bg: accentHex, fg: "#ffffff" },
-  ]
-  cards.forEach((c, i) => {
-    const x = MARGIN + i * (cardW + 8)
-    page.drawRectangle({ x, y: yt(y) - 42, width: cardW, height: 42, color: hexToRgb(c.bg) })
-    // centered value
-    const vw = bold.widthOfTextAtSize(c.value, 15)
-    page.drawText(c.value, {
-      x: x + (cardW - vw) / 2,
-      y: yt(y + 10),
-      size: 15,
-      font: bold,
-      color: hexToRgb(c.fg),
-    })
-    const lw = font.widthOfTextAtSize(c.label, 8)
-    page.drawText(c.label, {
-      x: x + (cardW - lw) / 2,
-      y: yt(y + 32),
-      size: 8,
-      font,
-      color: hexToRgb(c.fg),
-    })
-  })
-  y += 54
-
-  // ---- Checklist table ----
-  // (re-fetch page reference for pagination)
-  let curPage = page
-
   function ensureSpace(needed: number) {
-    if (y + needed > PDF_H - 80) {
-      curPage = doc.addPage([PDF_W, PDF_H])
+    if (y + needed > PDF_H - 60) {
+      page = doc.addPage([PDF_W, PDF_H])
       y = MARGIN
     }
   }
 
-  curPage.drawText("Checklist Responses", { x: MARGIN, y: yt(y), size: 11, font: bold, color: hexToRgb("#334155") })
-  y += 16
-  // table header row
-  curPage.drawRectangle({ x: MARGIN, y: yt(y) - 18, width: CONTENT_W, height: 18, color: slateBg })
-  curPage.drawText("ITEM", { x: MARGIN + 6, y: yt(y + 5), size: 8, font: bold, color: muted })
-  curPage.drawText("STATUS", { x: MARGIN + 230, y: yt(y + 5), size: 8, font: bold, color: muted })
-  curPage.drawText("REASON / REMARKS", { x: MARGIN + 310, y: yt(y + 5), size: 8, font: bold, color: muted })
+  let y = 0
+
+  // ============ HEADER BAR ============
+  page.drawRectangle({ x: 0, y: PDF_H - 64, width: PDF_W, height: 64, color: accent })
+  drawTextSafe(page, "SQLMS", { x: MARGIN, y: yt(42), size: 18, font: bold, color: white })
+  drawTextSafe(
+    page,
+    isEscalation ? "Escalation Report" : "Inspection Report",
+    { x: MARGIN, y: yt(54), size: 10, font, color: rgb(0.9, 0.9, 0.9) }
+  )
+  drawTextSafe(page, "Smart QR Logbook Management System", {
+    x: PDF_W - MARGIN - 180,
+    y: yt(38),
+    size: 8,
+    font,
+    color: rgb(0.85, 0.85, 0.85),
+  })
+
+  y = 88
+
+  // ============ TITLE ============
+  drawTextSafe(
+    page,
+    isEscalation ? "ESCALATION REQUIRED" : "INSPECTION REPORT",
+    { x: MARGIN, y: yt(y), size: 15, font: bold, color: accent }
+  )
+  y += 20
+  drawTextSafe(
+    page,
+    isEscalation
+      ? "An inspection reported issue(s) that require attention."
+      : "A new inspection has been completed and logged.",
+    { x: MARGIN, y: yt(y), size: 9, font, color: muted }
+  )
   y += 18
 
+  // ============ INFO TABLE (boxed) ============
+  const infoBoxY = y
+  const infoRows: [string, string][] = [
+    ["Location", `${d.locationName}  /  ${d.machineName}`],
+    ["Category", `${d.categoryName}${d.departmentName ? "  /  " + d.departmentName : ""}`],
+    ["Completed By", `${d.userName}${d.employeeCode ? "  (" + d.employeeCode + ")" : ""}`],
+    ["Date & Time", `${d.date}  ${d.time} IST`],
+  ]
+  const rowH = 18
+  const infoBoxH = infoRows.length * rowH + 8
+  page.drawRectangle({
+    x: MARGIN,
+    y: yt(infoBoxY) - infoBoxH,
+    width: CONTENT_W,
+    height: infoBoxH,
+    color: rowBg,
+    borderColor: borderClr,
+    borderWidth: 0.5,
+  })
+  infoRows.forEach(([label, value], i) => {
+    const ry = infoBoxY + 4 + i * rowH
+    drawTextSafe(page, label.toUpperCase(), {
+      x: MARGIN + 8,
+      y: yt(ry + 4),
+      size: 7,
+      font: bold,
+      color: faint,
+    })
+    const valLines = wrapText(sanitizeText(value), font, 9, CONTENT_W - 130)
+    valLines.forEach((ln, j) => {
+      drawTextSafe(page, ln, {
+        x: MARGIN + 120,
+        y: yt(ry + 4 + j * 11),
+        size: 9,
+        font: bold,
+        color: ink,
+      })
+    })
+  })
+  y = infoBoxY + infoBoxH + 14
+
+  // ============ SUMMARY CARDS ============
+  const cardW = (CONTENT_W - 18) / 4
+  const cards: { label: string; value: string; bg: string; fg: string }[] = [
+    { label: "PASSED", value: String(d.passed), bg: "#dcfce7", fg: "#166534" },
+    { label: "FAILED", value: String(d.failed), bg: "#fee2e2", fg: "#991b1b" },
+    { label: "N/A", value: String(d.na), bg: "#e2e8f0", fg: "#475569" },
+    { label: "SCORE", value: `${d.score.toFixed(1)}%`, bg: accentHex, fg: "#ffffff" },
+  ]
+  cards.forEach((c, i) => {
+    const x = MARGIN + i * (cardW + 6)
+    page.drawRectangle({ x, y: yt(y) - 40, width: cardW, height: 40, color: hexToRgb(c.bg) })
+    const vw = bold.widthOfTextAtSize(c.value, 16)
+    drawTextSafe(page, c.value, {
+      x: x + (cardW - vw) / 2,
+      y: yt(y + 10),
+      size: 16,
+      font: bold,
+      color: hexToRgb(c.fg),
+    })
+    const lw = font.widthOfTextAtSize(c.label, 7)
+    drawTextSafe(page, c.label, {
+      x: x + (cardW - lw) / 2,
+      y: yt(y + 30),
+      size: 7,
+      font,
+      color: hexToRgb(c.fg),
+    })
+  })
+  y += 52
+
+  // ============ CHECKLIST TABLE ============
   const responses = isEscalation
     ? d.responses.filter((r) => r.status === "NOT_OK")
     : d.responses
 
-  const statusMeta = {
-    OK: { label: "OK", bg: "#dcfce7", fg: "#166534" },
-    NOT_OK: { label: "NOT OK", bg: "#fee2e2", fg: "#991b1b" },
-    NA: { label: "N/A", bg: "#f1f5f9", fg: "#475569" },
-  } as const
-
-  responses.forEach((r, idx) => {
-    ensureSpace(26)
-    const rowH = 24
-    if (idx % 2 === 0) {
-      curPage.drawRectangle({ x: MARGIN, y: yt(y) - rowH, width: CONTENT_W, height: rowH, color: rowBg })
-    }
-    // item
-    const itemLines = wrapText(r.item, font, 9, 215)
-    itemLines.forEach((ln, i) => {
-      curPage.drawText(ln, { x: MARGIN + 6, y: yt(y + 7 + i * 11), size: 9, font, color: ink })
-    })
-    // status pill
-    const meta = statusMeta[r.status]
-    const pillW = 52
-    const pillX = MARGIN + 230
-    curPage.drawRectangle({ x: pillX, y: yt(y + 6) - 14, width: pillW, height: 14, color: hexToRgb(meta.bg) })
-    const sw = bold.widthOfTextAtSize(meta.label, 8)
-    curPage.drawText(meta.label, {
-      x: pillX + (pillW - sw) / 2,
-      y: yt(y + 9),
-      size: 8,
-      font: bold,
-      color: hexToRgb(meta.fg),
-    })
-    // reason
-    const reasonLines = wrapText(r.reason || "—", font, 8, CONTENT_W - 320)
-    reasonLines.forEach((ln, i) => {
-      curPage.drawText(ln, { x: MARGIN + 310, y: yt(y + 7 + i * 10), size: 8, font, color: hexToRgb("#475569") })
-    })
-    y += Math.max(rowH, Math.max(itemLines.length, reasonLines.length) * 11 + 8)
-  })
-  y += 12
-
-  // ---- Remarks ----
-  if (d.remarks) {
-    ensureSpace(50)
-    curPage.drawText("REMARKS", { x: MARGIN, y: yt(y), size: 8, font: bold, color: faint })
-    y += 12
-    const remarkLines = wrapText(d.remarks, font, 9, CONTENT_W - 12)
-    const boxH = Math.max(32, remarkLines.length * 12 + 8)
-    curPage.drawRectangle({ x: MARGIN, y: yt(y) - boxH, width: CONTENT_W, height: boxH, color: rowBg })
-    curPage.drawRectangle({ x: MARGIN, y: yt(y) - boxH, width: CONTENT_W, height: boxH, borderColor: borderClr, borderWidth: 0.5 })
-    remarkLines.forEach((ln, i) => {
-      curPage.drawText(ln, { x: MARGIN + 6, y: yt(y + 8 + i * 12), size: 9, font, color: hexToRgb("#334155") })
-    })
-    y += boxH + 8
-  }
-
-  // ---- Footer (on every page) ----
-  const footerText = `Generated by SQLMS · Smart QR Logbook Management System · ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
-  doc.getPages().forEach((p) => {
-    const fw = font.widthOfTextAtSize(footerText, 7)
-    p.drawText(footerText, {
-      x: (PDF_W - fw) / 2,
-      y: 30,
+  drawTextSafe(page, "CHECKLIST DETAILS", { x: MARGIN, y: yt(y), size: 11, font: bold, color: ink })
+  y += 8
+  if (isEscalation) {
+    drawTextSafe(page, "(Showing failed items only)", {
+      x: PDF_W - MARGIN - 140,
+      y: yt(y - 4),
       size: 7,
       font,
       color: faint,
     })
+  }
+  y += 10
+
+  // Column positions
+  const colItem = MARGIN + 6
+  const colItemW = 200
+  const colStatus = MARGIN + 230
+  const statusPillW = 56
+  const colReason = MARGIN + 310
+  const colReasonW = CONTENT_W - 320
+
+  // Header row
+  const hdrH = 18
+  page.drawRectangle({ x: MARGIN, y: yt(y) - hdrH, width: CONTENT_W, height: hdrH, color: slateBg })
+  drawTextSafe(page, "CHECK ITEM", { x: colItem, y: yt(y + 5), size: 7, font: bold, color: muted })
+  drawTextSafe(page, "STATUS", { x: colStatus, y: yt(y + 5), size: 7, font: bold, color: muted })
+  drawTextSafe(page, "REASON / REMARKS", { x: colReason, y: yt(y + 5), size: 7, font: bold, color: muted })
+  y += hdrH
+
+  const statusMeta = {
+    OK: { label: "OK", bg: "#dcfce7", fg: "#166534" },
+    NOT_OK: { label: "NOT OK", bg: "#fee2e2", fg: "#991b1b" },
+    NA: { label: "N/A", bg: "#e2e8f0", fg: "#475569" },
+  } as const
+
+  responses.forEach((r, idx) => {
+    const itemLines = wrapText(sanitizeText(r.item), font, 9, colItemW)
+    const reasonLines = wrapText(
+      sanitizeText(r.reason || "-"),
+      font,
+      8,
+      colReasonW
+    )
+    const cellH = Math.max(26, itemLines.length * 12 + 8, reasonLines.length * 11 + 8)
+    ensureSpace(cellH + 4)
+
+    // Row background (alternating)
+    if (idx % 2 === 0) {
+      page.drawRectangle({
+        x: MARGIN,
+        y: yt(y) - cellH,
+        width: CONTENT_W,
+        height: cellH,
+        color: rowBg,
+      })
+    }
+    // Row separator line
+    page.drawRectangle({
+      x: MARGIN,
+      y: yt(y) - cellH,
+      width: CONTENT_W,
+      height: 0.5,
+      color: borderClr,
+    })
+
+    // Item text
+    itemLines.forEach((ln, i) => {
+      drawTextSafe(page, ln, {
+        x: colItem,
+        y: yt(y + 8 + i * 11),
+        size: 9,
+        font: bold,
+        color: ink,
+      })
+    })
+
+    // Status pill
+    const meta = statusMeta[r.status] || statusMeta.NA
+    const pillH = 14
+    page.drawRectangle({
+      x: colStatus,
+      y: yt(y + 7) - pillH,
+      width: statusPillW,
+      height: pillH,
+      color: hexToRgb(meta.bg),
+    })
+    const sw = bold.widthOfTextAtSize(meta.label, 7)
+    drawTextSafe(page, meta.label, {
+      x: colStatus + (statusPillW - sw) / 2,
+      y: yt(y + 10),
+      size: 7,
+      font: bold,
+      color: hexToRgb(meta.fg),
+    })
+
+    // Reason text
+    reasonLines.forEach((ln, i) => {
+      drawTextSafe(page, ln, {
+        x: colReason,
+        y: yt(y + 8 + i * 10),
+        size: 8,
+        font,
+        color: muted,
+      })
+    })
+
+    y += cellH
+  })
+  y += 14
+
+  // ============ REMARKS ============
+  if (d.remarks) {
+    ensureSpace(44)
+    drawTextSafe(page, "INSPECTOR REMARKS", { x: MARGIN, y: yt(y), size: 8, font: bold, color: faint })
+    y += 12
+    const remarkLines = wrapText(sanitizeText(d.remarks), font, 9, CONTENT_W - 16)
+    const boxH = Math.max(30, remarkLines.length * 12 + 10)
+    ensureSpace(boxH + 4)
+    page.drawRectangle({
+      x: MARGIN,
+      y: yt(y) - boxH,
+      width: CONTENT_W,
+      height: boxH,
+      color: rowBg,
+      borderColor: borderClr,
+      borderWidth: 0.5,
+    })
+    remarkLines.forEach((ln, i) => {
+      drawTextSafe(page, ln, {
+        x: MARGIN + 8,
+        y: yt(y + 9 + i * 12),
+        size: 9,
+        font,
+        color: ink,
+      })
+    })
+    y += boxH + 6
+  }
+
+  // ============ FOOTER (on every page) ============
+  const footerText = sanitizeText(
+    `Generated by SQLMS - Smart QR Logbook Management System - ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+  )
+  doc.getPages().forEach((p) => {
+    try {
+      const fw = font.widthOfTextAtSize(footerText, 7)
+      p.drawText(footerText, {
+        x: (PDF_W - fw) / 2,
+        y: 28,
+        size: 7,
+        font,
+        color: faint,
+      })
+    } catch {
+      /* ignore */
+    }
   })
 
   const bytes = await doc.save()

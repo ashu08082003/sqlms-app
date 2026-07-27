@@ -325,3 +325,27 @@ Work Log:
 
 Stage Summary:
 - PDF attachment issue FIXED. Root cause was pdfkit's font-file path resolution breaking under Next.js bundling. Switched to pdf-lib (pure JS, no external files). Both report and escalation emails now successfully generate and attach the checklist PDF sheet. Verified via dev.log (PDF byte counts) + email log (SENT status) with the user's real SMTP.
+
+---
+Task ID: 21 (fix incomplete PDF report — drawTextSafe API bug)
+Agent: main (orchestrator)
+Task: Fix "report just include some points like only N/A or wrong details" — the PDF attachment was incomplete/missing most content.
+
+Work Log:
+- Diagnosed using pdftotext on a generated test PDF: only the footer text was rendering; ALL body content (header, title, info table, summary cards, checklist items, remarks) was missing.
+- Root cause: the `drawTextSafe` wrapper called `page.drawText({ text, ...opts })` (single object), but pdf-lib's API is `page.drawText(text: string, options: {...})` (TWO arguments). Every `drawTextSafe` call threw a type error which was silently caught by the try/catch, so no body text was drawn. The footer rendered correctly because it used the correct two-arg API directly.
+- Also added `sanitizeText()` to handle non-WinAnsi characters (pdf-lib's StandardFonts throw on chars like ₹, →, ✓, ⚠, smart quotes). Replaces common Unicode with ASCII equivalents (₹→Rs., →->, ✓->OK, em-dash→-, smart quotes→straight, etc.) and strips any remaining non-encodable chars to spaces. Prevents drawText throws on real-world inspection data.
+- Rewrote the entire `buildInspectionPdf()` with a cleaner, more robust layout:
+  - Header bar (teal for report / red for escalation) with SQLMS branding
+  - Title + subtitle
+  - Boxed info table: Location / Category / Completed By / Date & Time (IST)
+  - 4 summary cards: PASSED / FAILED / N/A / SCORE with colored backgrounds
+  - Full checklist table with ALL items: alternating row shading, row separators, colored OK/NOT OK/N/A status pills, item labels, and reasons/remarks column. Multi-page support via ensureSpace().
+  - Inspector remarks box
+  - IST timestamp footer on every page
+- Verified via pdftotext that ALL 8 checklist items now appear in the report PDF with correct statuses + reasons + remarks. Escalation PDF correctly shows only the failed item with "(Showing failed items only)" note.
+- Live end-to-end test (real Gmail SMTP): submitted inspection with Oil Level NOT_OK → dev log shows "Report PDF generated: 3202 bytes" + "Escalation PDF generated: 2606 bytes" → both emails SENT with complete PDF attachments.
+- Cleaned test data (production-ready). Lint clean.
+
+Stage Summary:
+- PDF report bug FIXED. Root cause was a wrong API call signature in the drawTextSafe wrapper (single-object vs two-argument). The PDF now includes the COMPLETE report: all checklist items with their statuses (OK/NOT OK/N/A), reasons for failures, inspector remarks, location/machine/category/employee/date-time/score — everything. Verified via pdftotext text extraction + live SMTP send.
