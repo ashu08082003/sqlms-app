@@ -52,3 +52,14 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Database files — NEVER track these in git (live data must persist across sessions)
+db/custom.db
+db/custom.db-journal
+db/custom.db-wal
+db/custom.db-shm
+db/backups/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
