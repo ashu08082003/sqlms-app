@@ -4,7 +4,7 @@
  *
  * Usage: bun run scripts/backup-db.ts
  */
-import { copyFileSync, mkdirSync, existsSync } from "fs"
+import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from "fs"
 import { join } from "path"
 
 const DB_PATH = "/home/z/my-project/db/custom.db"
@@ -31,11 +31,10 @@ function backup() {
   console.log(`  Original: ${DB_PATH}`)
 
   // Keep only the last 10 backups, delete older ones
-  const { readdirSync, statSync, unlinkSync } = require("fs")
   const backups = readdirSync(BACKUP_DIR)
     .filter((f: string) => f.startsWith("custom-") && f.endsWith(".db"))
     .map((f: string) => ({ name: f, path: join(BACKUP_DIR, f), mtime: statSync(join(BACKUP_DIR, f)).mtime }))
-    .sort((a: any, b: any) => b.mtime - a.mtime)
+    .sort((a: { mtime: number }, b: { mtime: number }) => b.mtime - a.mtime)
 
   if (backups.length > 10) {
     const toDelete = backups.slice(10)

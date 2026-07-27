@@ -11,6 +11,7 @@ import {
   ClipboardList,
   BarChart3,
   Mail,
+  CalendarRange,
   LogOut,
   Sun,
   Moon,
@@ -48,6 +49,7 @@ import { UsersView } from "@/components/views/users-view"
 import { InspectionsView } from "@/components/views/inspections-view"
 import { AnalyticsView } from "@/components/views/analytics-view"
 import { EmailSettingsView } from "@/components/views/email-settings-view"
+import { ConsolidatedReportsView } from "@/components/views/consolidated-reports-view"
 import { EmployeeScanView } from "@/components/views/employee-scan-view"
 import { toast } from "sonner"
 
@@ -58,6 +60,7 @@ const NAV: { section: AdminSection; label: string; icon: typeof LayoutDashboard 
   { section: "categories", label: "Categories & Depts", icon: Tags },
   { section: "users", label: "Users", icon: Users },
   { section: "inspections", label: "Reports", icon: ClipboardList },
+  { section: "consolidated", label: "Period Reports", icon: CalendarRange },
   { section: "analytics", label: "Analytics", icon: BarChart3 },
   { section: "email", label: "Email & Alerts", icon: Mail },
 ]
@@ -274,6 +277,7 @@ export function AppShell({ initialQr }: { initialQr: string | null }) {
               {section === "categories" && <CategoriesView />}
               {section === "users" && <UsersView />}
               {section === "inspections" && <InspectionsView />}
+              {section === "consolidated" && <ConsolidatedReportsView />}
               {section === "analytics" && <AnalyticsView />}
               {section === "email" && <EmailSettingsView />}
             </div>

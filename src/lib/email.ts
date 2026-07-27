@@ -909,3 +909,333 @@ export async function sendTestEmail(to: string): Promise<{ status: string; error
     return { status: "FAILED", error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/* ---------------- Consolidated Period Report (PDF + email) ---------------- */
+export interface ConsolidatedReportData {
+  location: {
+    qrCode: string
+    name: string
+    machineName: string
+    categoryName: string
+    categoryColor: string
+    departmentName: string | null
+    frequency: string
+  }
+  checklist: { name: string | null; items: string[] }
+  period: { type: string; label: string; start: string; end: string }
+  days: { date: string; label: string; weekday: string }[]
+  matrix: {
+    item: string
+    days: { date: string; status: "OK" | "NOT_OK" | "NA" | null; reason: string | null }[]
+  }[]
+  summary: {
+    totalDays: number
+    inspectedDays: number
+    missedDays: number
+    completionRate: number
+    totalPassed: number
+    totalFailed: number
+    totalNa: number
+    avgScore: number
+    inspectionCount: number
+  }
+  failures: { date: string; item: string; reason: string; userName: string }[]
+}
+
+export async function buildConsolidatedPdf(d: ConsolidatedReportData): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+
+  const accent = hexToRgb("#0d9488")
+  const ink = hexToRgb("#0f172a")
+  const muted = hexToRgb("#475569")
+  const faint = hexToRgb("#94a3b8")
+  const slateBg = hexToRgb("#f1f5f9")
+  const rowBg = hexToRgb("#f8fafc")
+  const borderClr = hexToRgb("#e2e8f0")
+  const white = rgb(1, 1, 1)
+  const okBg = hexToRgb("#dcfce7")
+  const failBg = hexToRgb("#fee2e2")
+  const naBg = hexToRgb("#e2e8f0")
+
+  let page = doc.addPage([PDF_W, PDF_H])
+  const yt = (yFromTop: number) => PDF_H - yFromTop
+
+  let y = 0
+
+  function ensureSpace(needed: number) {
+    if (y + needed > PDF_H - 60) {
+      page = doc.addPage([PDF_W, PDF_H])
+      y = MARGIN
+    }
+  }
+
+  // ============ HEADER BAR ============
+  page.drawRectangle({ x: 0, y: PDF_H - 64, width: PDF_W, height: 64, color: accent })
+  drawTextSafe(page, "SQLMS", { x: MARGIN, y: yt(42), size: 18, font: bold, color: white })
+  drawTextSafe(
+    page,
+    "Consolidated " + (d.period.type === "week" ? "Weekly" : "Monthly") + " Report",
+    { x: MARGIN, y: yt(54), size: 10, font, color: rgb(0.9, 0.9, 0.9) }
+  )
+
+  y = 88
+  // ============ TITLE ============
+  drawTextSafe(page, "CONSOLIDATED INSPECTION REPORT", { x: MARGIN, y: yt(y), size: 14, font: bold, color: accent })
+  y += 18
+  drawTextSafe(page, d.period.label, { x: MARGIN, y: yt(y), size: 10, font, color: muted })
+  y += 16
+
+  // ============ INFO TABLE ============
+  const infoRows: [string, string][] = [
+    ["Location", d.location.name + "  /  " + d.location.machineName],
+    ["QR Code", d.location.qrCode],
+    ["Category", d.location.categoryName + (d.location.departmentName ? "  /  " + d.location.departmentName : "")],
+    ["Checklist", d.checklist.name || "-"],
+    ["Period", d.period.label],
+    ["Frequency", d.location.frequency],
+  ]
+  const rowH = 16
+  const infoBoxH = infoRows.length * rowH + 8
+  page.drawRectangle({
+    x: MARGIN,
+    y: yt(y) - infoBoxH,
+    width: CONTENT_W,
+    height: infoBoxH,
+    color: rowBg,
+    borderColor: borderClr,
+    borderWidth: 0.5,
+  })
+  infoRows.forEach(([label, value], i) => {
+    const ry = y + 4 + i * rowH
+    drawTextSafe(page, label.toUpperCase(), { x: MARGIN + 8, y: yt(ry + 3), size: 7, font: bold, color: faint })
+    drawTextSafe(page, value, { x: MARGIN + 110, y: yt(ry + 3), size: 9, font: bold, color: ink })
+  })
+  y += infoBoxH + 14
+
+  // ============ SUMMARY CARDS ============
+  const cardW = (CONTENT_W - 30) / 5
+  const cards: { label: string; value: string; bg: string; fg: string }[] = [
+    { label: "INSPECTED", value: String(d.summary.inspectedDays) + "/" + d.summary.totalDays, bg: "#dcfce7", fg: "#166534" },
+    { label: "COMPLETION", value: d.summary.completionRate + "%", bg: "#0d9488", fg: "#ffffff" },
+    { label: "PASSED", value: String(d.summary.totalPassed), bg: "#dcfce7", fg: "#166534" },
+    { label: "FAILED", value: String(d.summary.totalFailed), bg: "#fee2e2", fg: "#991b1b" },
+    { label: "AVG SCORE", value: d.summary.avgScore + "%", bg: "#e2e8f0", fg: "#475569" },
+  ]
+  cards.forEach((c, i) => {
+    const x = MARGIN + i * (cardW + 6)
+    page.drawRectangle({ x, y: yt(y) - 36, width: cardW, height: 36, color: hexToRgb(c.bg) })
+    const vw = bold.widthOfTextAtSize(c.value, 12)
+    drawTextSafe(page, c.value, { x: x + (cardW - vw) / 2, y: yt(y + 9), size: 12, font: bold, color: hexToRgb(c.fg) })
+    const lw = font.widthOfTextAtSize(c.label, 6)
+    drawTextSafe(page, c.label, { x: x + (cardW - lw) / 2, y: yt(y + 26), size: 6, font, color: hexToRgb(c.fg) })
+  })
+  y += 48
+
+  // ============ MATRIX TABLE ============
+  drawTextSafe(page, "CHECKLIST STATUS MATRIX", { x: MARGIN, y: yt(y), size: 11, font: bold, color: ink })
+  y += 16
+
+  const days = d.days
+  const itemColW = 140
+  const dayColW = (CONTENT_W - itemColW) / Math.max(days.length, 1)
+
+  // Header row: day labels
+  const hdrH = 22
+  page.drawRectangle({ x: MARGIN, y: yt(y) - hdrH, width: CONTENT_W, height: hdrH, color: slateBg })
+  drawTextSafe(page, "CHECK ITEM", { x: MARGIN + 4, y: yt(y + 7), size: 7, font: bold, color: muted })
+  days.forEach((day, i) => {
+    const x = MARGIN + itemColW + i * dayColW
+    drawTextSafe(page, day.label.split(" ")[0], { x: x + 2, y: yt(y + 4), size: 6, font: bold, color: muted })
+    drawTextSafe(page, day.weekday, { x: x + 2, y: yt(y + 13), size: 6, font, color: faint })
+  })
+  y += hdrH
+
+  // Matrix rows
+  const cellH = 18
+  d.matrix.forEach((row, idx) => {
+    ensureSpace(cellH + 4)
+    if (idx % 2 === 0) {
+      page.drawRectangle({ x: MARGIN, y: yt(y) - cellH, width: CONTENT_W, height: cellH, color: rowBg })
+    }
+    page.drawRectangle({ x: MARGIN, y: yt(y) - cellH, width: CONTENT_W, height: 0.5, color: borderClr })
+
+    // Item label (wrapped)
+    const itemLines = wrapText(sanitizeText(row.item), font, 7, itemColW - 8)
+    itemLines.slice(0, 2).forEach((ln, i) => {
+      drawTextSafe(page, ln, { x: MARGIN + 4, y: yt(y + 5 + i * 8), size: 7, font, color: ink })
+    })
+
+    // Day cells
+    row.days.forEach((dayCell, i) => {
+      const x = MARGIN + itemColW + i * dayColW
+      const cx = x + dayColW / 2
+      if (dayCell.status === "OK") {
+        page.drawRectangle({ x: x + 1, y: yt(y + 2), width: dayColW - 2, height: cellH - 4, color: okBg })
+        drawTextSafe(page, "OK", { x: cx - 5, y: yt(y + 6), size: 6, font: bold, color: hexToRgb("#166534") })
+      } else if (dayCell.status === "NOT_OK") {
+        page.drawRectangle({ x: x + 1, y: yt(y + 2), width: dayColW - 2, height: cellH - 4, color: failBg })
+        drawTextSafe(page, "X", { x: cx - 3, y: yt(y + 6), size: 7, font: bold, color: hexToRgb("#991b1b") })
+      } else if (dayCell.status === "NA") {
+        page.drawRectangle({ x: x + 1, y: yt(y + 2), width: dayColW - 2, height: cellH - 4, color: naBg })
+        drawTextSafe(page, "-", { x: cx - 2, y: yt(y + 6), size: 7, font, color: hexToRgb("#475569") })
+      } else {
+        drawTextSafe(page, "-", { x: cx - 2, y: yt(y + 6), size: 7, font, color: faint })
+      }
+    })
+    y += cellH
+  })
+  y += 12
+
+  // ============ FAILURES LIST ============
+  if (d.failures.length > 0) {
+    ensureSpace(40)
+    drawTextSafe(page, "ALL FAILURES IN PERIOD (" + d.failures.length + ")", { x: MARGIN, y: yt(y), size: 10, font: bold, color: hexToRgb("#991b1b") })
+    y += 14
+    d.failures.slice(0, 30).forEach((f, i) => {
+      ensureSpace(16)
+      drawTextSafe(page, f.date + "  " + f.item + "  -  " + f.reason + "  (" + f.userName + ")", {
+        x: MARGIN + 4,
+        y: yt(y),
+        size: 7,
+        font,
+        color: muted,
+      })
+      y += 13
+    })
+    if (d.failures.length > 30) {
+      drawTextSafe(page, "... and " + (d.failures.length - 30) + " more", { x: MARGIN + 4, y: yt(y), size: 7, font, color: faint })
+      y += 13
+    }
+    y += 8
+  }
+
+  // ============ FOOTER ============
+  const footerText = sanitizeText(
+    "Generated by SQLMS - Smart QR Logbook Management System - " +
+      new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) +
+      " IST"
+  )
+  doc.getPages().forEach((p) => {
+    try {
+      const fw = font.widthOfTextAtSize(footerText, 7)
+      p.drawText(footerText, { x: (PDF_W - fw) / 2, y: 28, size: 7, font, color: faint })
+    } catch {
+      /* ignore */
+    }
+  })
+
+  const bytes = await doc.save()
+  return Buffer.from(bytes)
+}
+
+export async function sendConsolidatedReportEmail(
+  to: string,
+  data: ConsolidatedReportData
+): Promise<{ status: string; error?: string }> {
+  const config = await getEmailConfig()
+  const pdfBuf = await buildConsolidatedPdf(data)
+
+  const periodWord = data.period.type === "week" ? "Weekly" : "Monthly"
+  const subject =
+    periodWord + " Consolidated Report - " + data.location.machineName + " - " + data.period.label
+  const html = emailShell(
+    periodWord + " Consolidated Report",
+    "#0d9488",
+    `<h2 style="margin:0 0 8px;font-size:20px;">` +
+      periodWord +
+      ` Report</h2>
+     <p style="margin:0 0 14px;font-size:13px;color:#475569;">Consolidated inspection report for <strong>` +
+      escapeHtml(data.location.name) +
+      ` / ` +
+      escapeHtml(data.location.machineName) +
+      `</strong> for the period <strong>` +
+      escapeHtml(data.period.label) +
+      `</strong>.</p>
+     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="background:#dcfce7;color:#166534;border-radius:10px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:800;">` +
+      data.summary.inspectedDays +
+      `/` +
+      data.summary.totalDays +
+      `</div><div style="font-size:11px;">Days Inspected</div></td>
+        <td style="width:8px;"></td>
+        <td style="background:#0d9488;color:#fff;border-radius:10px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:800;">` +
+      data.summary.completionRate +
+      `%</div><div style="font-size:11px;">Completion</div></td>
+        <td style="width:8px;"></td>
+        <td style="background:#fee2e2;color:#991b1b;border-radius:10px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:800;">` +
+      data.summary.totalFailed +
+      `</div><div style="font-size:11px;">Failed Items</div></td>
+        <td style="width:8px;"></td>
+        <td style="background:#f1f5f9;color:#475569;border-radius:10px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:800;">` +
+      data.summary.avgScore +
+      `%</div><div style="font-size:11px;">Avg Score</div></td>
+      </tr>
+     </table>
+     <p style="margin:18px 0 0;font-size:12px;color:#64748b;">The full checklist status matrix is attached as a PDF.</p>`
+  )
+
+  const filename =
+    (periodWord + "-Report-" + data.location.machineName + "-" + data.period.label)
+      .replace(/[^a-zA-Z0-9-]/g, "-")
+      .replace(/-+/g, "-") + ".pdf"
+
+  const attachments: EmailAttachment[] = [
+    { filename, content: pdfBuf, contentType: "application/pdf" },
+  ]
+
+  // SIMULATED mode
+  if (config.simulateOnly || !config.smtpHost || !config.fromEmail) {
+    await db.emailLog.create({
+      data: {
+        to,
+        subject,
+        bodyHtml: html,
+        status: "SIMULATED",
+        type: "REPORT",
+        inspectionId: null,
+        error: config.simulateOnly ? null : "SMTP not configured",
+      },
+    })
+    return { status: "SIMULATED" }
+  }
+
+  // Live SMTP
+  try {
+    const transporter = nodemailer.createTransport({
+      host: config.smtpHost,
+      port: config.smtpPort,
+      secure: config.smtpPort === 465,
+      auth:
+        config.smtpUser && config.smtpPass
+          ? { user: config.smtpUser, pass: config.smtpPass }
+          : undefined,
+    })
+    await transporter.sendMail({
+      from: '"' + config.fromName + '" <' + config.fromEmail + ">",
+      to,
+      subject,
+      html,
+      attachments,
+    })
+    await db.emailLog.create({
+      data: { to, subject, bodyHtml: html, status: "SENT", type: "REPORT", inspectionId: null },
+    })
+    return { status: "SENT" }
+  } catch (err) {
+    await db.emailLog.create({
+      data: {
+        to,
+        subject,
+        bodyHtml: html,
+        status: "FAILED",
+        type: "REPORT",
+        inspectionId: null,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    })
+    return { status: "FAILED", error: err instanceof Error ? err.message : String(err) }
+  }
+}

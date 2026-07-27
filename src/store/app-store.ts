@@ -10,6 +10,7 @@ export type AdminSection =
   | "categories"
   | "users"
   | "inspections"
+  | "consolidated"
   | "analytics"
   | "email"
 
