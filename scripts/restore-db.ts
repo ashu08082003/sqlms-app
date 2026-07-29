@@ -11,8 +11,11 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs"
 import { join } from "path"
 
-const DB_PATH = "/home/z/my-project/db/custom.db"
-const BACKUP_DIR = "/home/z/my-project/db/backups"
+const DB_PATH = process.env.DATABASE_URL
+  ?.replace("file:", "")
+  || "/app/db/custom.db"
+
+const BACKUP_DIR = process.cwd() + "/db/backups"
 
 function backupCurrent() {
   if (!existsSync(DB_PATH)) return null
