@@ -8,4 +8,4 @@ cmds = ["bun i --no-save"]
 cmds = ["bun run db:generate", "bun run build"]
 
 [start]
-cmd = "bun run db:push && bun run scripts/seed.ts && bun run start"
+cmd = "mkdir -p /app/db && bun run db:push && bun run scripts/seed.ts && bun run start"
