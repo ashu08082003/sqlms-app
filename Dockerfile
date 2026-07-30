@@ -20,6 +20,6 @@ ENV NODE_ENV=production
 ENV PORT=8080
 ENV HOSTNAME=0.0.0.0
 
-# Push schema, seed DB (failures are non-fatal), then start the Next.js standalone server
-CMD mkdir -p /app/db && bun run db:push; bun run scripts/seed.ts; node .next/standalone/server.js
+# Push schema to PostgreSQL, seed DB (failures are non-fatal), then start the Next.js standalone server
+CMD bun run db:push; bun run scripts/seed.ts; node .next/standalone/server.js
 
