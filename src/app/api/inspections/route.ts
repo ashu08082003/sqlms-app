@@ -131,6 +131,12 @@ export async function POST(req: Request) {
   // Errors are swallowed so a mail failure never breaks inspection submission.
   sendInspectionEmails(inspection.id).catch(() => {})
 
+  // Trigger cumulative report processing in the background.
+  // Checks if a period has ended and sends the consolidated report via email.
+  import("@/lib/report-scheduler").then(({ onInspectionSubmitted }) => {
+    onInspectionSubmitted(inspection.locationId).catch(() => {})
+  })
+
   return json({
     inspection: {
       id: inspection.id,
