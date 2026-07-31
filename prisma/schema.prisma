@@ -111,6 +111,21 @@ model Inspection {
   emails EmailLog[]
 }
 
+// Model to track cumulative report generation state per location per period
+model CumulativeReport {
+  id            String   @id @default(cuid())
+  locationId    String
+  frequency     String   // DAILY | WEEKLY | MONTHLY | QUARTERLY
+  cycleKey      String   // e.g. "2026-01", "2026-Q1", "2026"
+  status        String   @default("ACTIVE") // ACTIVE | FINALIZED | SENT
+  lastGeneratedAt DateTime?
+  lastEmailedAt  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([locationId, frequency, cycleKey])
+}
+
 // Singleton-style email configuration (one row, key = "global")
 model EmailSetting {
   id                String   @id @default(cuid())
