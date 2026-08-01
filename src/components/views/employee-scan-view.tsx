@@ -75,6 +75,18 @@ interface ResolvedChecklist {
 interface ResolveResponse {
   location: ResolvedLocation
   checklist: ResolvedChecklist | null
+  inspectionStatus?: {
+    frequency: string
+    periodLabel: string
+    alreadyInspected: boolean
+    nextDueAt: string | null
+    nextDueLabel: string | null
+    latestInspection: {
+      id: string
+      date: string
+      score: number
+    } | null
+  }
 }
 interface SubmitInspectionResponse {
   inspection: {
@@ -107,7 +119,7 @@ interface RecentInspection {
   user: { id: string; name: string; employeeCode: string | null }
 }
 
-type Phase = "idle" | "resolving" | "form" | "submitting" | "success"
+type Phase = "idle" | "resolving" | "form" | "submitting" | "success" | "alreadyDone"
 type ItemFormState = {
   status: ItemStatus | null
   reason: string
@@ -349,6 +361,13 @@ export function EmployeeScanView({ initialQr }: { initialQr: string | null }) {
           setResolvedCode(null)
           return
         }
+        // If already inspected in the current period, show the "already
+        // completed" screen instead of opening the checklist form again.
+        if (data.inspectionStatus?.alreadyInspected) {
+          setResolved(data)
+          setPhase("alreadyDone")
+          return
+        }
         setResolved(data)
         setItemStates(
           data.checklist.items.map(() => ({
@@ -533,9 +552,29 @@ export function EmployeeScanView({ initialQr }: { initialQr: string | null }) {
       setPhase("success")
       toast.success("Inspection submitted")
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to submit inspection"
-      )
+      // If the server rejects a duplicate (already inspected this period),
+      // switch to the "already completed" screen instead of showing an error.
+      const msg = err instanceof Error ? err.message : ""
+      if (/already been inspected/i.test(msg)) {
+        setResolved((prev) =>
+          prev
+            ? {
+                ...prev,
+                inspectionStatus: {
+                  frequency: resolved.location.frequency,
+                  periodLabel: "",
+                  alreadyInspected: true,
+                  nextDueAt: null,
+                  nextDueLabel: "",
+                  latestInspection: null,
+                },
+              }
+            : prev
+        )
+        setPhase("alreadyDone")
+        return
+      }
+      toast.error(msg || "Failed to submit inspection")
       setPhase("form")
     }
   }
@@ -883,6 +922,79 @@ export function EmployeeScanView({ initialQr }: { initialQr: string | null }) {
               )}
             </div>
           </div>
+        )}
+
+        {/* ===== ALREADY COMPLETED ===== */}
+        {phase === "alreadyDone" && resolved && (
+          <Card className="overflow-hidden border-0 p-0">
+            <div className="bg-sky-500 p-6 text-white sm:p-8">
+              <div className="flex flex-col items-center text-center">
+                <motion.div
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 220, damping: 18 }}
+                  className="rounded-full bg-white/20 p-3 backdrop-blur"
+                >
+                  <CheckCircle2 className="h-12 w-12" />
+                </motion.div>
+                <h2 className="mt-3 text-2xl font-bold">
+                  Already Completed
+                </h2>
+                <p className="text-sm text-white/85">
+                  This location has already been inspected for the current period.
+                </p>
+              </div>
+            </div>
+            <CardContent className="space-y-4 p-4 sm:p-6">
+              <div className="rounded-lg border p-3">
+                <p className="font-semibold">{resolved.location.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {resolved.location.machineName} · {resolved.location.categoryName}
+                </p>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Meta
+                  icon={Calendar}
+                  label="Frequency"
+                  value={frequencyLabel(resolved.location.frequency)}
+                />
+                <Meta
+                  icon={Hash}
+                  label="QR"
+                  value={resolved.location.qrCode}
+                />
+              </div>
+
+              {resolved.inspectionStatus?.nextDueLabel && (
+                <div className="rounded-lg border bg-sky-500/5 p-3 text-sm">
+                  <p className="flex items-center gap-2 font-medium">
+                    <Clock className="h-4 w-4 text-sky-500" />
+                    Next inspection due
+                  </p>
+                  <p className="mt-1 text-lg font-bold">
+                    {resolved.inspectionStatus.nextDueLabel}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    You can scan this QR again after that period begins.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  className="h-12 flex-1"
+                  onClick={resetAll}
+                >
+                  <ScanLine className="mr-2 h-4 w-4" /> Scan Another
+                </Button>
+                <Button className="h-12 flex-1" onClick={resetAll}>
+                  <CheckCircle2 className="mr-2 h-4 w-4" /> Done
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* ===== SUCCESS ===== */}

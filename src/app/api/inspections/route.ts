@@ -2,7 +2,8 @@ import { db } from "@/lib/db"
 import { json, error, requireAuth } from "@/lib/api-helpers"
 import { stringifyResponses } from "@/lib/constants"
 import { sendInspectionEmails } from "@/lib/email"
-import type { ItemStatus } from "@/lib/types"
+import { hasInspectionInPeriod, getPeriodBounds } from "@/lib/frequency"
+import type { ItemStatus, Frequency } from "@/lib/types"
 
 export async function GET(req: Request) {
   const auth = await requireAuth(req)
@@ -99,6 +100,18 @@ export async function POST(req: Request) {
     include: { checklist: true, category: true },
   })
   if (!location) return error("Location not found", 404)
+
+  // Frequency-based enforcement: reject duplicate inspection submissions
+  // within the same period (day/week/month/quarter).
+  const frequency = (location.frequency || "DAILY") as Frequency
+  const alreadyDone = await hasInspectionInPeriod(locationId, frequency)
+  if (alreadyDone) {
+    const { nextLabel } = getPeriodBounds(frequency)
+    return error(
+      `This location has already been inspected for the current ${frequency.toLowerCase()} period. Next inspection due: ${nextLabel}.`,
+      409
+    )
+  }
 
   const passed = responses.filter((r) => r.status === "OK").length
   const failed = responses.filter((r) => r.status === "NOT_OK").length
