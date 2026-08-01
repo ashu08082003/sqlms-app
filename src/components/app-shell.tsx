@@ -52,6 +52,7 @@ import { EmailSettingsView } from "@/components/views/email-settings-view"
 import { ConsolidatedReportsView } from "@/components/views/consolidated-reports-view"
 import { EmployeeScanView } from "@/components/views/employee-scan-view"
 import { toast } from "sonner"
+import { ErrorBoundary } from "@/components/error-boundary"
 
 const NAV: { section: AdminSection; label: string; icon: typeof LayoutDashboard }[] = [
   { section: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -269,21 +270,25 @@ export function AppShell({ initialQr }: { initialQr: string | null }) {
         )}
 
         <main className="flex-1 overflow-x-hidden">
-          {isAdmin ? (
+{isAdmin ? (
             <div className="mx-auto max-w-7xl px-4 py-6 lg:px-8">
-              {section === "dashboard" && <DashboardView />}
-              {section === "locations" && <LocationsView />}
-              {section === "checklists" && <ChecklistsView />}
-              {section === "categories" && <CategoriesView />}
-              {section === "users" && <UsersView />}
-              {section === "inspections" && <InspectionsView />}
-              {section === "consolidated" && <ConsolidatedReportsView />}
-              {section === "analytics" && <AnalyticsView />}
-              {section === "email" && <EmailSettingsView />}
+              <ErrorBoundary>
+                {section === "dashboard" && <DashboardView />}
+                {section === "locations" && <LocationsView />}
+                {section === "checklists" && <ChecklistsView />}
+                {section === "categories" && <CategoriesView />}
+                {section === "users" && <UsersView />}
+                {section === "inspections" && <InspectionsView />}
+                {section === "consolidated" && <ConsolidatedReportsView />}
+                {section === "analytics" && <AnalyticsView />}
+                {section === "email" && <EmailSettingsView />}
+              </ErrorBoundary>
             </div>
           ) : (
             <div className="mx-auto max-w-3xl px-4 py-6 lg:px-8">
-              <EmployeeScanView initialQr={initialQr} />
+              <ErrorBoundary>
+                <EmployeeScanView initialQr={initialQr} />
+              </ErrorBoundary>
             </div>
           )}
         </main>
