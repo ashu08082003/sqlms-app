@@ -435,8 +435,8 @@ export function ConsolidatedReportsView() {
           <Card>
             <CardHeader className="pb-3">
 <CardTitle className="text-base">Checklist Status Matrix</CardTitle>
-              <CardDescription>
-                Each row is a checklist item; each column is a {data.period.granularity}. Green = OK, Red = Not OK, Gray = N/A, dot = not inspected.
+<CardDescription>
+                Each row is a checklist item; each column is a {data.period.granularity || "period"}. Green = OK, Red = Not OK, Gray = N/A, dot = not inspected.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
