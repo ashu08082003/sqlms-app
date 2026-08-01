@@ -66,7 +66,7 @@ interface ConsolidatedData {
     frequency: string
   }
   checklist: { name: string | null; items: string[] }
-  period: { type: string; label: string; start: string; end: string; year: number; month: number }
+  period: { type: string; label: string; start: string; end: string; year: number; month: number; granularity: string }
   days: { date: string; label: string; weekday: string }[]
   matrix: {
     item: string
@@ -84,6 +84,12 @@ interface ConsolidatedData {
     inspectionCount: number
   }
   failures: { date: string; item: string; reason: string; userName: string }[]
+  dueInfo: {
+    lastInspectionDate: string | null
+    lastInspectionLabel: string | null
+    nextDueAt: string | null
+    nextDueLabel: string | null
+  }
 }
 
 function statusCell(status: "OK" | "NOT_OK" | "NA" | null) {
@@ -365,7 +371,7 @@ export function ConsolidatedReportsView() {
             </CardContent>
           </Card>
 
-          {/* Summary cards */}
+{/* Summary cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {[
               { label: "Days Inspected", value: `${data.summary.inspectedDays}/${data.summary.totalDays}`, tone: "bg-emerald-500/10 text-emerald-600" },
@@ -385,6 +391,36 @@ export function ConsolidatedReportsView() {
             ))}
           </div>
 
+          {/* Due info: last inspection + next due */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Card>
+              <CardContent className="flex items-center gap-3 p-4">
+                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                  <CheckCircle2 className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Last Inspection</p>
+                  <p className="text-sm font-semibold">
+                    {data.dueInfo.lastInspectionLabel || "No inspections yet"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center gap-3 p-4">
+                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <CalendarRange className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Next Due</p>
+                  <p className="text-sm font-semibold">
+                    {data.dueInfo.nextDueLabel || "—"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <Button onClick={exportCsv} variant="outline">
@@ -398,9 +434,9 @@ export function ConsolidatedReportsView() {
           {/* Matrix table */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Checklist Status Matrix</CardTitle>
+<CardTitle className="text-base">Checklist Status Matrix</CardTitle>
               <CardDescription>
-                Each row is a checklist item; each column is a day. Green = OK, Red = Not OK, Gray = N/A, dot = not inspected.
+                Each row is a checklist item; each column is a {data.period.granularity}. Green = OK, Red = Not OK, Gray = N/A, dot = not inspected.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
