@@ -702,6 +702,11 @@ async function sendOne(
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
+      requireTLS: config.smtpPort !== 465,
+      connectionTimeout: 10000,
+      socketTimeout: 10000,
+      logger: true,
+      debug: true,
       auth:
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
@@ -727,6 +732,9 @@ async function sendOne(
     })
     void info
   } catch (err) {
+    const errorMessage =
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    console.error("[email] Failed to send SMTP email:", errorMessage, err)
     await db.emailLog.create({
       data: {
         to,
@@ -735,7 +743,7 @@ async function sendOne(
         status: "FAILED",
         type,
         inspectionId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage,
       },
     })
   }
@@ -879,6 +887,11 @@ export async function sendTestEmail(to: string): Promise<{ status: string; error
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
+      requireTLS: config.smtpPort !== 465,
+      connectionTimeout: 10000,
+      socketTimeout: 10000,
+      logger: true,
+      debug: true,
       auth:
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
@@ -895,6 +908,9 @@ export async function sendTestEmail(to: string): Promise<{ status: string; error
     })
     return { status: "SENT" }
   } catch (err) {
+    const errorMessage =
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    console.error("[email] Failed to send test email:", errorMessage, err)
     await db.emailLog.create({
       data: {
         to,
@@ -903,10 +919,10 @@ export async function sendTestEmail(to: string): Promise<{ status: string; error
         status: "FAILED",
         type: "REPORT",
         inspectionId: null,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage,
       },
     })
-    return { status: "FAILED", error: err instanceof Error ? err.message : String(err) }
+    return { status: "FAILED", error: errorMessage }
   }
 }
 
@@ -1208,6 +1224,11 @@ export async function sendConsolidatedReportEmail(
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
+      requireTLS: config.smtpPort !== 465,
+      connectionTimeout: 10000,
+      socketTimeout: 10000,
+      logger: true,
+      debug: true,
       auth:
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
@@ -1225,6 +1246,9 @@ export async function sendConsolidatedReportEmail(
     })
     return { status: "SENT" }
   } catch (err) {
+    const errorMessage =
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    console.error("[email] Failed to send consolidated report email:", errorMessage, err)
     await db.emailLog.create({
       data: {
         to,
@@ -1233,9 +1257,9 @@ export async function sendConsolidatedReportEmail(
         status: "FAILED",
         type: "REPORT",
         inspectionId: null,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage,
       },
     })
-    return { status: "FAILED", error: err instanceof Error ? err.message : String(err) }
+    return { status: "FAILED", error: errorMessage }
   }
 }
