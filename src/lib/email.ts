@@ -696,7 +696,7 @@ async function sendOne(
     return
   }
 
-  // Real SMTP send
+// Real SMTP send
   try {
     const transporter = nodemailer.createTransport({
       host: config.smtpHost,
@@ -706,6 +706,10 @@ async function sendOne(
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
           : undefined,
+      // Fail fast on network issues instead of hanging for the default 2min
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     })
     const info = await transporter.sendMail({
       from: `"${config.fromName}" <${config.fromEmail}>`,
@@ -874,7 +878,7 @@ export async function sendTestEmail(to: string): Promise<{ status: string; error
     })
     return { status: "SIMULATED" }
   }
-  try {
+try {
     const transporter = nodemailer.createTransport({
       host: config.smtpHost,
       port: config.smtpPort,
@@ -883,6 +887,10 @@ export async function sendTestEmail(to: string): Promise<{ status: string; error
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
           : undefined,
+      // Fail fast on network issues instead of hanging for the default 2min
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     })
     await transporter.sendMail({
       from: `"${config.fromName}" <${config.fromEmail}>`,
@@ -1202,7 +1210,7 @@ export async function sendConsolidatedReportEmail(
     return { status: "SIMULATED" }
   }
 
-  // Live SMTP
+// Live SMTP
   try {
     const transporter = nodemailer.createTransport({
       host: config.smtpHost,
@@ -1212,6 +1220,10 @@ export async function sendConsolidatedReportEmail(
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
           : undefined,
+      // Fail fast on network issues instead of hanging for the default 2min
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     })
     await transporter.sendMail({
       from: '"' + config.fromName + '" <' + config.fromEmail + ">",
