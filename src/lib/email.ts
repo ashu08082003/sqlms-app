@@ -698,7 +698,7 @@ async function sendOne(
 
 // Real SMTP send
   try {
-    const transporter = nodemailer.createTransport({
+const transporter = nodemailer.createTransport({
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
@@ -706,6 +706,8 @@ async function sendOne(
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
           : undefined,
+      // Force IPv4 — Node in the container tries IPv6 first and times out before falling back
+      family: 4,
       // Fail fast on network issues instead of hanging for the default 2min
       connectionTimeout: 15000,
       greetingTimeout: 15000,
@@ -887,6 +889,8 @@ try {
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
           : undefined,
+      // Force IPv4 — Node in the container tries IPv6 first and times out before falling back
+      family: 4,
       // Fail fast on network issues instead of hanging for the default 2min
       connectionTimeout: 15000,
       greetingTimeout: 15000,
@@ -1220,6 +1224,8 @@ export async function sendConsolidatedReportEmail(
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
           : undefined,
+      // Force IPv4 — Node in the container tries IPv6 first and times out before falling back
+      family: 4,
       // Fail fast on network issues instead of hanging for the default 2min
       connectionTimeout: 15000,
       greetingTimeout: 15000,
