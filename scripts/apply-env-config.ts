@@ -1,19 +1,37 @@
 /**
- * Applies SMTP / email configuration from environment variables into the database.
+ * Applies SMTP / email configuration into the database automatically.
  * This runs on every container start so that Railway-deployed instances
- * automatically get live email capability without needing to re-enter
- * SMTP credentials through the admin UI each time.
+ * always have working email capability WITHOUT needing to manually set
+ * SMTP variables in Railway or re-enter credentials through the admin UI.
  *
- * Supported env vars (all optional):
+ * Default SMTP settings are baked in below (Gmail). Optionally, any of
+ * these can be overridden via environment variables:
  *   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, FROM_EMAIL, FROM_NAME
  *   REPORT_TO_EMAIL, ESCALATION_TO_EMAIL
  *   ENABLE_REPORT_EMAIL, ENABLE_ESCALATION, SIMULATE_ONLY
  *
- * Any env var that is set will be written to the EmailSetting "global" row.
+ * If an env var is set, it takes precedence over the baked-in default.
  */
 import { PrismaClient } from "@prisma/client"
 
 const p = new PrismaClient()
+
+// ---------------------------------------------------------------------------
+// BAKED-IN DEFAULTS (edit these to change email behaviour without Railway vars)
+// ---------------------------------------------------------------------------
+const DEFAULTS = {
+  smtpHost: "smtp.gmail.com",
+  smtpPort: 587,
+  smtpUser: "std.ashutosh@gmail.com",
+  smtpPass: "vnzv xhod iuzb peny",
+  fromEmail: "std.ashutosh@gmail.com",
+  fromName: "SQLMS Logbook",
+  reportToEmail: "reports@plant.com",
+  escalationToEmail: "maintenance@plant.com",
+  enableReportEmail: true,
+  enableEscalation: true,
+  simulateOnly: false,
+}
 
 function boolEnv(name: string): boolean | undefined {
   const v = process.env[name]
@@ -22,21 +40,22 @@ function boolEnv(name: string): boolean | undefined {
 }
 
 async function main() {
-  const hasAny =
-    process.env.SMTP_HOST ||
-    process.env.SMTP_USER ||
-    process.env.SMTP_PASS ||
-    process.env.FROM_EMAIL ||
-    process.env.REPORT_TO_EMAIL ||
-    process.env.ESCALATION_TO_EMAIL ||
-    process.env.SIMULATE_ONLY
-
-  if (!hasAny) {
-    console.log("[env-config] No SMTP env vars set — skipping (using DB defaults).")
-    return
-  }
-
   const patch: Record<string, unknown> = {}
+
+  // Start from baked-in defaults
+  patch.smtpHost = DEFAULTS.smtpHost
+  patch.smtpPort = DEFAULTS.smtpPort
+  patch.smtpUser = DEFAULTS.smtpUser
+  patch.smtpPass = DEFAULTS.smtpPass
+  patch.fromEmail = DEFAULTS.fromEmail
+  patch.fromName = DEFAULTS.fromName
+  patch.reportToEmail = DEFAULTS.reportToEmail
+  patch.escalationToEmail = DEFAULTS.escalationToEmail
+  patch.enableReportEmail = DEFAULTS.enableReportEmail
+  patch.enableEscalation = DEFAULTS.enableEscalation
+  patch.simulateOnly = DEFAULTS.simulateOnly
+
+  // Optional env-var overrides (take precedence over baked-in defaults)
   if (process.env.SMTP_HOST) patch.smtpHost = process.env.SMTP_HOST.trim()
   if (process.env.SMTP_PORT) {
     const port = parseInt(process.env.SMTP_PORT, 10)
@@ -63,7 +82,7 @@ async function main() {
     create: { key: "global", ...patch },
   })
 
-  console.log("[env-config] Email settings applied from env vars:")
+  console.log("[env-config] Email settings applied (baked-in defaults + optional env overrides):")
   console.log(
     JSON.stringify(
       {
@@ -91,4 +110,3 @@ main()
     process.exit(0) // non-fatal — do not block server start
   })
   .finally(() => p.$disconnect())
-
