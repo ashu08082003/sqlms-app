@@ -702,6 +702,10 @@ async function sendOne(
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
+      // Force IPv4-only connection to avoid IPv6 egress issues reaching
+      // Gmail SMTP (Railway containers may resolve IPv6 but be unable to
+      // reach it, causing ECONNREFUSED on the IPv6 address).
+      family: 4,
       auth:
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
@@ -883,6 +887,10 @@ try {
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
+      // Force IPv4-only connection to avoid IPv6 egress issues reaching
+      // Gmail SMTP (Railway containers may resolve IPv6 but be unable to
+      // reach it, causing ECONNREFUSED on the IPv6 address).
+      family: 4,
       auth:
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
@@ -1216,6 +1224,10 @@ export async function sendConsolidatedReportEmail(
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
+      // Force IPv4-only connection to avoid IPv6 egress issues reaching
+      // Gmail SMTP (Railway containers may resolve IPv6 but be unable to
+      // reach it, causing ECONNREFUSED on the IPv6 address).
+      family: 4,
       auth:
         config.smtpUser && config.smtpPass
           ? { user: config.smtpUser, pass: config.smtpPass }
