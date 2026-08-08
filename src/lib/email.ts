@@ -949,7 +949,12 @@ export interface ConsolidatedReportData {
     departmentName: string | null
     frequency: string
   }
-  checklist: { name: string | null; items: string[] }
+checklist: {
+    name: string | null
+    description: string | null
+    documentNumber: string | null
+    items: string[]
+  }
   period: { type: string; label: string; start: string; end: string }
   days: { date: string; label: string; weekday: string }[]
   matrix: {
@@ -1015,12 +1020,14 @@ export async function buildConsolidatedPdf(d: ConsolidatedReportData): Promise<B
   drawTextSafe(page, d.period.label, { x: MARGIN, y: yt(y), size: 10, font, color: muted })
   y += 16
 
-  // ============ INFO TABLE ============
+// ============ INFO TABLE ============
   const infoRows: [string, string][] = [
     ["Location", d.location.name + "  /  " + d.location.machineName],
     ["QR Code", d.location.qrCode],
     ["Category", d.location.categoryName + (d.location.departmentName ? "  /  " + d.location.departmentName : "")],
     ["Checklist", d.checklist.name || "-"],
+    ["Document No.", d.checklist.documentNumber || "-"],
+    ["Comment", d.checklist.description || "-"],
     ["Period", d.period.label],
     ["Frequency", d.location.frequency],
   ]

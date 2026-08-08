@@ -65,6 +65,7 @@ interface Checklist {
   categoryName: string
   categoryColor: string
   locationCount: number
+  documentNumber: string | null
 }
 
 interface Category {
@@ -81,6 +82,7 @@ interface Category {
 /* ----------------------------- Form state ----------------------------- */
 interface FormState {
   name: string
+  documentNumber: string
   categoryId: string
   frequency: string
   description: string
@@ -90,6 +92,7 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   name: "",
+  documentNumber: "",
   categoryId: "",
   frequency: "DAILY",
   description: "",
@@ -138,6 +141,7 @@ export function ChecklistsView() {
     setEditing(cl)
     setForm({
       name: cl.name,
+      documentNumber: cl.documentNumber ?? "",
       categoryId: cl.categoryId,
       frequency: cl.frequency,
       description: cl.description ?? "",
@@ -180,6 +184,7 @@ export function ChecklistsView() {
     setSubmitting(true)
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
+      documentNumber: form.documentNumber.trim() || null,
       categoryId: form.categoryId,
       frequency: form.frequency,
       description: form.description.trim() || null,
@@ -346,8 +351,18 @@ export function ChecklistsView() {
               </div>
             </div>
 
+<div className="space-y-2">
+              <Label htmlFor="cl-doc">Document Number</Label>
+              <Input
+                id="cl-doc"
+                value={form.documentNumber}
+                onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
+                placeholder="e.g. SOP-001, MSM-DOC-2026-01"
+              />
+            </div>
+
             <div className="space-y-2">
-              <Label htmlFor="cl-desc">Description</Label>
+              <Label htmlFor="cl-desc">Description / Comment</Label>
               <Textarea
                 id="cl-desc"
                 value={form.description}
@@ -550,7 +565,14 @@ function ChecklistCard({
       {/* Body */}
       <div className="flex-1 space-y-3 p-4">
         <div>
-          <p className="font-semibold">{cl.name}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold">{cl.name}</p>
+            {cl.documentNumber && (
+              <Badge variant="outline" className="border-primary/30 font-mono text-primary">
+                Doc: {cl.documentNumber}
+              </Badge>
+            )}
+          </div>
           {cl.description ? (
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
               {cl.description}

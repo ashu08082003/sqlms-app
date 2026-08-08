@@ -53,12 +53,13 @@ model Category {
 }
 
 model Checklist {
-  id          String   @id @default(cuid())
-  name        String
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  description String?
-  frequency   String   @default("DAILY") // DAILY | WEEKLY | MONTHLY | QUARTERLY
+  id             String   @id @default(cuid())
+  name           String
+  documentNumber String?
+  categoryId     String
+  category       Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  description    String?
+  frequency      String   @default("DAILY") // DAILY | WEEKLY | MONTHLY | QUARTERLY
   // JSON array of checklist item labels: ["Greasing", "Oil Level", ...]
   items       String   @default("[]")
   active      Boolean  @default(true)

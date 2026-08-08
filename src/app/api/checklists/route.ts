@@ -11,6 +11,7 @@ export async function GET() {
     checklists: cls.map((c) => ({
       id: c.id,
       name: c.name,
+      documentNumber: c.documentNumber,
       description: c.description,
       frequency: c.frequency,
       items: parseItems(c.items),
@@ -27,8 +28,9 @@ export async function POST(req: Request) {
   const auth = await requireAdmin(req)
   if (!auth) return error("Admin access required", 403)
   const body = await req.json().catch(() => ({}))
-  const { name, categoryId, frequency, description, items } = body as {
+  const { name, documentNumber, categoryId, frequency, description, items } = body as {
     name?: string
+    documentNumber?: string
     categoryId?: string
     frequency?: string
     description?: string
@@ -40,6 +42,7 @@ export async function POST(req: Request) {
   const cl = await db.checklist.create({
     data: {
       name: String(name),
+      documentNumber: documentNumber?.trim() || null,
       categoryId: String(categoryId),
       frequency: frequency || "DAILY",
       description: description || null,
