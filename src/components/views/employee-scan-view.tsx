@@ -69,6 +69,7 @@ interface ResolvedChecklist {
   id: string
   name: string
   description: string | null
+  documentNumber: string | null
   frequency: string
   items: string[]
 }
@@ -778,7 +779,7 @@ export function EmployeeScanView({ initialQr }: { initialQr: string | null }) {
                     {resolved.location.machineName}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <Meta
                     icon={Hash}
                     label="QR"
@@ -798,6 +799,16 @@ export function EmployeeScanView({ initialQr }: { initialQr: string | null }) {
                     icon={Tag}
                     label="Checklist"
                     value={resolved.checklist?.name ?? "—"}
+                  />
+                  <Meta
+                    icon={Hash}
+                    label="Doc No"
+                    value={resolved.checklist?.documentNumber || "00"}
+                  />
+                  <Meta
+                    icon={ClipboardCheck}
+                    label="Comment"
+                    value={resolved.checklist?.description || "—"}
                   />
                 </div>
                 <Separator />

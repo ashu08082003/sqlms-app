@@ -65,7 +65,7 @@ interface ConsolidatedData {
     departmentName: string | null
     frequency: string
   }
-  checklist: { name: string | null; items: string[] }
+checklist: { name: string | null; description: string | null; documentNumber: string | null; items: string[] }
   period: { type: string; label: string; start: string; end: string; year: number; month: number; granularity: string }
   days: { date: string; label: string; weekday: string }[]
   matrix: {
@@ -196,7 +196,15 @@ export function ConsolidatedReportsView() {
 
   function exportCsv() {
     if (!data) return
-    const rows: string[][] = []
+const rows: string[][] = []
+    rows.push(["Location", `${data.location.name} / ${data.location.machineName} (${data.location.qrCode})`])
+    rows.push(["Category", data.location.categoryName])
+    rows.push(["Checklist", data.checklist.name || "-"])
+    rows.push(["Document No.", data.checklist.documentNumber || "00"])
+    rows.push(["Comment", data.checklist.description || "-"])
+    rows.push(["Period", data.period.label])
+    rows.push(["Frequency", data.location.frequency])
+    rows.push([])
     rows.push(["Check Item", ...data.days.map((d) => d.label)])
     for (const row of data.matrix) {
       rows.push([
@@ -354,13 +362,23 @@ export function ConsolidatedReportsView() {
                 >
                   <CalendarRange className="h-6 w-6" />
                 </span>
-                <div>
+<div>
                   <p className="text-lg font-bold">
                     {data.location.name} / {data.location.machineName}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {data.location.categoryName}
                     {data.location.departmentName ? " · " + data.location.departmentName : ""} · {data.location.qrCode}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Doc No:</span>{" "}
+                    {data.checklist.documentNumber || "00"}
+                    {data.checklist.description ? (
+                      <span className="ml-3">
+                        <span className="font-medium text-foreground">Comment:</span>{" "}
+                        {data.checklist.description}
+                      </span>
+                    ) : null}
                   </p>
                 </div>
               </div>

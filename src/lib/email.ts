@@ -82,6 +82,9 @@ export interface InspectionEmailData {
   departmentName: string | null
   userName: string
   employeeCode: string | null
+  checklistName: string | null
+  documentNumber: string | null
+  checklistComment: string | null
   date: string
   time: string
   passed: number
@@ -168,6 +171,14 @@ function buildReportEmail(d: InspectionEmailData): { subject: string; html: stri
         <td style="padding:8px 0;font-size:12px;color:#94a3b8;">Date / Time</td>
         <td style="padding:8px 0;font-size:13px;">${escapeHtml(d.date)} · ${escapeHtml(d.time)}</td>
       </tr>
+      <tr>
+        <td style="padding:8px 0;font-size:12px;color:#94a3b8;">Document No.</td>
+        <td style="padding:8px 0;font-size:13px;">${escapeHtml(d.documentNumber || "00")}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0;font-size:12px;color:#94a3b8;">Comment</td>
+        <td style="padding:8px 0;font-size:13px;">${escapeHtml(d.checklistComment || "-")}</td>
+      </tr>
     </table>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
       <tr>
@@ -226,6 +237,14 @@ function buildEscalationEmail(d: InspectionEmailData): { subject: string; html: 
       <tr>
         <td style="padding:6px 0;font-size:12px;color:#94a3b8;">Date / Time</td>
         <td style="padding:6px 0;font-size:13px;">${escapeHtml(d.date)} · ${escapeHtml(d.time)}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;font-size:12px;color:#94a3b8;">Document No.</td>
+        <td style="padding:6px 0;font-size:13px;font-weight:600;">${escapeHtml(d.documentNumber || "00")}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;font-size:12px;color:#94a3b8;">Comment</td>
+        <td style="padding:6px 0;font-size:13px;">${escapeHtml(d.checklistComment || "-")}</td>
       </tr>
       <tr>
         <td style="padding:6px 0;font-size:12px;color:#94a3b8;">Score</td>
@@ -425,12 +444,14 @@ async function buildInspectionPdf(
   y += 18
 
   // ============ INFO TABLE (boxed) ============
-  const infoBoxY = y
+const infoBoxY = y
   const infoRows: [string, string][] = [
     ["Location", `${d.locationName}  /  ${d.machineName}`],
     ["Category", `${d.categoryName}${d.departmentName ? "  /  " + d.departmentName : ""}`],
     ["Completed By", `${d.userName}${d.employeeCode ? "  (" + d.employeeCode + ")" : ""}`],
     ["Date & Time", `${d.date}  ${d.time} IST`],
+    ["Document No.", d.documentNumber || "00"],
+    ["Comment", d.checklistComment || "-"],
   ]
   const rowH = 18
   const infoBoxH = infoRows.length * rowH + 8
@@ -759,10 +780,10 @@ const transporter = nodemailer.createTransport({
 export async function sendInspectionEmails(inspectionId: string): Promise<void> {
   const config = await getEmailConfig()
 
-  const inspection = await db.inspection.findUnique({
+const inspection = await db.inspection.findUnique({
     where: { id: inspectionId },
     include: {
-      location: { include: { category: true, department: true } },
+      location: { include: { category: true, department: true, checklist: true } },
       user: true,
     },
   })
@@ -776,6 +797,9 @@ export async function sendInspectionEmails(inspectionId: string): Promise<void> 
     departmentName: inspection.location.department?.name ?? null,
     userName: inspection.user.name,
     employeeCode: inspection.user.employeeCode,
+    checklistName: inspection.location.checklist?.name ?? null,
+    documentNumber: inspection.location.checklist?.documentNumber ?? null,
+    checklistComment: inspection.location.checklist?.description ?? null,
     date: inspection.inspectionDate.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "long",
@@ -1025,8 +1049,8 @@ export async function buildConsolidatedPdf(d: ConsolidatedReportData): Promise<B
     ["Location", d.location.name + "  /  " + d.location.machineName],
     ["QR Code", d.location.qrCode],
     ["Category", d.location.categoryName + (d.location.departmentName ? "  /  " + d.location.departmentName : "")],
-    ["Checklist", d.checklist.name || "-"],
-    ["Document No.", d.checklist.documentNumber || "-"],
+["Checklist", d.checklist.name || "-"],
+    ["Document No.", d.checklist.documentNumber || "00"],
     ["Comment", d.checklist.description || "-"],
     ["Period", d.period.label],
     ["Frequency", d.location.frequency],
