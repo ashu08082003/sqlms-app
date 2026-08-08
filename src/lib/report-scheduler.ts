@@ -313,6 +313,8 @@ export function toConsolidatedReportData(data: CumulativeInspectionData): Consol
     },
     checklist: {
       name: `Checklist for ${data.location.name}`,
+      description: null,
+      documentNumber: null,
       items: checklistItems,
     },
     period: {

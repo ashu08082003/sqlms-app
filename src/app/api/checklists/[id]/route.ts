@@ -7,8 +7,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (!auth) return error("Admin access required", 403)
   const { id } = await params
   const body = await req.json().catch(() => ({}))
-  const { name, categoryId, frequency, description, items, active } = body as {
+  const { name, documentNumber, categoryId, frequency, description, items, active } = body as {
     name?: string
+    documentNumber?: string
     categoryId?: string
     frequency?: string
     description?: string
@@ -17,6 +18,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
   const data: Record<string, unknown> = {}
   if (name) data.name = name
+  if (documentNumber !== undefined) data.documentNumber = documentNumber?.trim() || null
   if (categoryId) data.categoryId = categoryId
   if (frequency) data.frequency = frequency
   if (description !== undefined) data.description = description || null

@@ -37,7 +37,13 @@ export interface ConsolidatedData {
     departmentName: string | null
     frequency: string
   }
-  checklist: { id: string | null; name: string | null; items: string[] }
+  checklist: {
+    id: string | null
+    name: string | null
+    description: string | null
+    documentNumber: string | null
+    items: string[]
+  }
   period: {
     type: string
     label: string
@@ -425,8 +431,14 @@ export async function buildConsolidatedReport(params: {
       frequency: location.frequency,
     },
     checklist: location.checklist
-      ? { id: location.checklist.id, name: location.checklist.name, items: checklistItems }
-      : { id: null, name: null, items: checklistItems },
+      ? {
+          id: location.checklist.id,
+          name: location.checklist.name,
+          description: location.checklist.description,
+          documentNumber: location.checklist.documentNumber,
+          items: checklistItems,
+        }
+      : { id: null, name: null, description: null, documentNumber: null, items: checklistItems },
     period: {
       type: period,
       label: periodLabel,
