@@ -344,7 +344,7 @@ const rows: string[][] = []
           title="Failed to load report"
           description="There was an error building the consolidated report. Please try again."
         />
-      ) : !data ? null : data.matrix.length === 0 ? (
+) : !data ? null : !Array.isArray(data.matrix) || !Array.isArray(data.days) || !Array.isArray(data.failures) || !data.matrix.length ? (
         <EmptyState
           icon={CalendarRange}
           title="No checklist data"
