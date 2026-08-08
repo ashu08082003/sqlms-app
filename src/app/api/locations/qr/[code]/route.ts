@@ -37,6 +37,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
           id: loc.checklist.id,
           name: loc.checklist.name,
           description: loc.checklist.description,
+          documentNumber: loc.checklist.documentNumber,
           frequency: loc.checklist.frequency,
           items: parseItems(loc.checklist.items),
         }
